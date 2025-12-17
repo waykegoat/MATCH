@@ -9,6 +9,93 @@ import random
 from datetime import datetime, timedelta
 from collections import Counter
 
+# ========== ФУНКЦИИ ОФОРМЛЕНИЯ ==========
+
+def send_formatted_message(chat_id, text, reply_markup=None, parse_mode='Markdown'):
+    """
+    Отправляет сообщение с оформлением (фото бота + текст)
+    """
+    # Добавляем шапку и подпись
+    formatted_text = f"""✨ *GamerMatch* ✨
+    
+{text}
+
+🎮 *Найди свою идеальную команду!*"""
+    
+    # Если есть фото бота (file_id)
+    if Config.BOT_PHOTO_FILE_ID:
+        try:
+            return bot.send_photo(
+                chat_id=chat_id,
+                photo=Config.BOT_PHOTO_FILE_ID,
+                caption=formatted_text,
+                parse_mode=parse_mode,
+                reply_markup=reply_markup
+            )
+        except Exception as e:
+            print(f"Ошибка отправки фото (file_id): {e}")
+            # Fallback на текст
+            return bot.send_message(
+                chat_id=chat_id,
+                text=formatted_text,
+                parse_mode=parse_mode,
+                reply_markup=reply_markup
+            )
+    # Если есть URL фото
+    elif Config.BOT_PHOTO_URL:
+        try:
+            return bot.send_photo(
+                chat_id=chat_id,
+                photo=Config.BOT_PHOTO_URL,
+                caption=formatted_text,
+                parse_mode=parse_mode,
+                reply_markup=reply_markup
+            )
+        except Exception as e:
+            print(f"Ошибка отправки фото (URL): {e}")
+            return bot.send_message(
+                chat_id=chat_id,
+                text=formatted_text,
+                parse_mode=parse_mode,
+                reply_markup=reply_markup
+            )
+    else:
+        # Без фото
+        return bot.send_message(
+            chat_id=chat_id,
+            text=formatted_text,
+            parse_mode=parse_mode,
+            reply_markup=reply_markup
+        )
+
+def edit_formatted_message(chat_id, message_id, text, reply_markup=None, parse_mode='Markdown'):
+    """
+    Редактирует сообщение с оформлением
+    """
+    formatted_text = f"""✨ *GamerMatch* ✨
+    
+{text}
+
+🎮 *Найди свою идеальную команду!*"""
+    
+    try:
+        return bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=formatted_text,
+            parse_mode=parse_mode,
+            reply_markup=reply_markup
+        )
+    except Exception as e:
+        print(f"Ошибка редактирования сообщения: {e}")
+        # Если не получается отредактировать (сообщение с фото),
+        # удаляем старое и отправляем новое
+        try:
+            bot.delete_message(chat_id, message_id)
+        except:
+            pass
+        return send_formatted_message(chat_id, text, reply_markup, parse_mode)
+
 state_storage = StateMemoryStorage()
 bot = telebot.TeleBot(Config.BOT_TOKEN, state_storage=state_storage)
 
@@ -98,16 +185,15 @@ def send_welcome(message):
         show_subscription_required(message.chat.id, user_id)
         return
     
-    welcome_text = """🎮 Добро пожаловать в GamerMatch!
-
-✨ Основные функции:
+    # УБЕРИТЕ "🎮 Добро пожаловать в GamerMatch!" из текста
+    welcome_text = """✨ *Основные функции:*
 📝 Моя анкета - Создать/редактировать анкету
 🔍 Искать игроков - Поиск по анкетам
 ❤️ Мои лайки - Кто вас лайкнул
 💌 Мэтчи - Ваши взаимные лайки
 ⚙️ Настройки - Настройки поиска
 
-📌 Как работает:
+📌 *Как работает:*
 1. Создайте анкету с играми и интересами
 2. Ищите людей через поиск
 3. Ставьте лайки понравившимся
@@ -117,7 +203,8 @@ def send_welcome(message):
 
 📷 Чтобы добавить фото - просто отправьте его боту"""
     
-    bot.send_message(message.chat.id, welcome_text, parse_mode='HTML', reply_markup=get_main_keyboard())
+    send_formatted_message(message.chat.id, welcome_text, reply_markup=get_main_keyboard())
+    
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('check_sub_'))
 def check_subscription_callback(call):
@@ -162,16 +249,16 @@ def send_help(message):
         show_subscription_required(message.chat.id, user_id)
         return
     
-    help_text = """🎮 GamerMatch - бот для знакомств геймеров
+    help_text = """🎮 *GamerMatch - бот для знакомств геймеров*
 
-📋 Основные функции:
+📋 *Основные функции:*
 📝 Моя анкета - Создать/редактировать анкету
 🔍 Искать игроков - Поиск по анкетам
 ❤️ Мои лайки - Кто вас лайкнул
 💌 Мэтчи - Ваши взаимные лайки
 ⚙️ Настройки - Настройки поиска
 
-📌 Как работает:
+📌 *Как работает:*
 1. Создайте анкету с играми и интересами
 2. Ищите людей через поиск
 3. Ставьте лайки понравившимся
@@ -181,7 +268,7 @@ def send_help(message):
 
 📷 Чтобы добавить фото - просто отправьте его боту"""
     
-    bot.send_message(message.chat.id, help_text, reply_markup=get_main_keyboard())
+    send_formatted_message(message.chat.id, help_text, reply_markup=get_main_keyboard())
 
 @bot.message_handler(commands=['profile'])
 @bot.message_handler(func=lambda message: message.text == "📝 Моя анкета")
@@ -218,7 +305,7 @@ def my_profile(message):
             profile_text += f"\n🎂 Возраст: {user.age}"
         
         if user.about:
-            profile_text += f"\n\n📝 О себе:\n{user.about[:200]}..."
+            profile_text += f"\n\n📝 О себе:\n{user.about[:200]}"
         
         profile_text += f"\n\n❤️ Лайков получено: {len(user.likes_received) if user.likes_received else 0}"
         profile_text += f"\n💌 Мэтчей: {len(user.matches) if user.matches else 0}"
@@ -599,15 +686,16 @@ def edit_profile_menu(call):
     )
     markup.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="back_to_profile"))
     
-    # Удаляем старое сообщение и отправляем новое с меню редактирования
+    # Удаляем старое сообщение
     try:
         bot.delete_message(call.message.chat.id, call.message.message_id)
     except:
         pass
     
-    bot.send_message(
+    # Отправляем с оформлением
+    send_formatted_message(
         call.message.chat.id,
-        "Что хотите изменить?",
+        "🎛️ *Что хотите изменить?*\n\nВыберите пункт для редактирования:",
         reply_markup=markup
     )
 
@@ -899,7 +987,11 @@ def manage_photos(call):
         
         if not user.photos or len(user.photos) == 0:
             bot.answer_callback_query(call.id, "У вас нет фото")
-            bot.send_message(call.message.chat.id, "У вас нет фото. Отправьте фото для добавления.", reply_markup=get_main_keyboard())
+            send_formatted_message(
+                call.message.chat.id,
+                "📸 *У вас нет фото*\n\nОтправьте фото для добавления.",
+                reply_markup=get_main_keyboard()
+            )
             return
         
         markup = types.InlineKeyboardMarkup()
@@ -910,15 +1002,15 @@ def manage_photos(call):
         markup.add(types.InlineKeyboardButton("❌ Удалить все фото", callback_data="delete_all_photos"))
         markup.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="back_to_profile"))
         
-        # Удаляем старое сообщение и отправляем новое
+        # Удаляем старое сообщение
         try:
             bot.delete_message(call.message.chat.id, call.message.message_id)
         except:
             pass
         
-        bot.send_message(
+        send_formatted_message(
             call.message.chat.id,
-            f"Управление фото ({len(user.photos)} фото):",
+            f"📸 *Управление фото*\n\nУ вас {len(user.photos)} фото. Выберите действие:",
             reply_markup=markup
         )
         
@@ -1363,18 +1455,28 @@ def show_likes(message):
         user = db.query(User).filter(User.telegram_id == user_id).first()
         
         if not user:
-            bot.send_message(message.chat.id, "Сначала создайте анкету!", reply_markup=get_main_keyboard())
+            send_formatted_message(
+                message.chat.id,
+                "❌ *Сначала создайте анкету!*\n\nНажмите '📝 Моя анкета' для создания.",
+                reply_markup=get_main_keyboard()
+            )
             return
         
         likes_received = user.likes_received or []
         
         if not likes_received:
-            bot.send_message(message.chat.id, "У вас пока нет лайков 😔", reply_markup=get_main_keyboard())
+            send_formatted_message(
+                message.chat.id,
+                "😔 *У вас пока нет лайков*\n\nБудьте активнее, заполните анкету и ищите других игроков!",
+                reply_markup=get_main_keyboard()
+            )
             return
         
         users_who_liked = db.query(User).filter(User.telegram_id.in_(likes_received[:20])).all()
         
-        text = f"❤️ Вас лайкнули ({len(users_who_liked)}):\n\n"
+        text = f"""❤️ *Вас лайкнули ({len(users_who_liked)})*
+
+"""
         for i, liked_user in enumerate(users_who_liked[:10], 1):
             text += f"{i}. {liked_user.name} (@{liked_user.username or 'нет username'})\n"
         
@@ -1385,11 +1487,15 @@ def show_likes(message):
         if users_who_liked:
             markup.add(types.InlineKeyboardButton("🔍 Посмотреть их анкеты", callback_data="view_likers"))
         
-        bot.send_message(message.chat.id, text, reply_markup=markup)
+        send_formatted_message(message.chat.id, text, reply_markup=markup)
         
     except Exception as e:
         print(f"Ошибка: {e}")
-        bot.send_message(message.chat.id, "Ошибка при загрузке лайков", reply_markup=get_main_keyboard())
+        send_formatted_message(
+            message.chat.id,
+            "❌ *Ошибка при загрузке лайков*\n\nПопробуйте позже.",
+            reply_markup=get_main_keyboard()
+        )
     finally:
         db.close()
 
@@ -1443,31 +1549,45 @@ def show_matches(message):
         user = db.query(User).filter(User.telegram_id == user_id).first()
         
         if not user:
-            bot.send_message(message.chat.id, "Сначала создайте анкету!", reply_markup=get_main_keyboard())
+            send_formatted_message(
+                message.chat.id,
+                "❌ *Сначала создайте анкету!*\n\nНажмите '📝 Моя анкета' для создания.",
+                reply_markup=get_main_keyboard()
+            )
             return
         
         matches = user.matches or []
         
         if not matches:
-            bot.send_message(message.chat.id, "У вас пока нет мэтчей 😔", reply_markup=get_main_keyboard())
+            send_formatted_message(
+                message.chat.id,
+                "😔 *У вас пока нет мэтчей*\n\nСтавьте лайки понравившимся игрокам! При взаимном лайке вы получите контакт.",
+                reply_markup=get_main_keyboard()
+            )
             return
         
         matched_users = db.query(User).filter(User.telegram_id.in_(matches[:20])).all()
         
-        text = f"💌 Ваши мэтчи ({len(matched_users)}):\n\n"
-        for i, match_user in enumerate(matched_users[:10], 1):
+        text = f"""💌 *Ваши мэтчи ({len(matched_users)})*
+
+"""
+        for i, match_user in enumerate(matched_users[:5], 1):
             username = match_user.username or 'нет username'
-            text += f"{i}. {match_user.name} (@{username})\n"
+            text += f"{i}. *{match_user.name}* (@{username})\n"
             text += f"   🎮 {match_user.platform} | {', '.join(match_user.favorite_games[:2]) if match_user.favorite_games else 'Общение'}\n\n"
         
-        if len(matched_users) > 10:
-            text += f"... и еще {len(matched_users) - 10}"
+        if len(matched_users) > 5:
+            text += f"... и еще {len(matched_users) - 5}"
         
-        bot.send_message(message.chat.id, text, reply_markup=get_main_keyboard())
+        send_formatted_message(message.chat.id, text, reply_markup=get_main_keyboard())
         
     except Exception as e:
         print(f"Ошибка: {e}")
-        bot.send_message(message.chat.id, "Ошибка при загрузке мэтчей", reply_markup=get_main_keyboard())
+        send_formatted_message(
+            message.chat.id,
+            "❌ *Ошибка при загрузке мэтчей*\n\nПопробуйте позже.",
+            reply_markup=get_main_keyboard()
+        )
     finally:
         db.close()
 
@@ -1479,21 +1599,23 @@ def show_settings(message):
         chat_id = message.message.chat.id
         message_id = message.message.message_id
         user_id = message.from_user.id
+        is_callback = True
     else:
         chat_id = message.chat.id
         message_id = None
         user_id = message.from_user.id
+        is_callback = False
     
     if not check_subscription_sync(user_id):
         show_subscription_required(chat_id, user_id)
-        if hasattr(message, 'data'):
+        if is_callback:
             bot.answer_callback_query(message.id, "❌ Сначала подпишитесь на канал!")
         return
     
     db = get_db_session()
     
     if not db:
-        if message_id:
+        if is_callback:
             bot.answer_callback_query(message.id, "Ошибка БД")
         else:
             bot.send_message(chat_id, "Ошибка подключения к БД", reply_markup=get_main_keyboard())
@@ -1503,7 +1625,7 @@ def show_settings(message):
         user = db.query(User).filter(User.telegram_id == user_id).first()
         
         if not user:
-            if message_id:
+            if is_callback:
                 bot.answer_callback_query(message.id, "Сначала создайте анкету!")
             else:
                 bot.send_message(chat_id, "Сначала создайте анкету!", reply_markup=get_main_keyboard())
@@ -1512,16 +1634,18 @@ def show_settings(message):
         if not hasattr(user, 'search_by_interests') or user.search_by_interests is None:
             user.search_by_interests = True
         
-        text = "⚙️ Настройки поиска:\n\n"
-        text += f"🔍 Поиск активен: {'✅ Да' if user.is_active else '❌ Нет'}\n"
-        text += f"🎯 Поиск по интересам: {'✅ Включен' if user.search_by_interests else '❌ Выключен'}\n\n"
-        
-        if user.search_by_interests:
-            text += "🔍 Бот ищет людей с общими интересами\n"
-        else:
-            text += "🔍 Бот показывает случайные анкеты\n"
-        
-        text += "\nИспользуйте кнопки ниже для настройки:"
+        text = """⚙️ *Настройки поиска*
+
+🔍 *Поиск активен:* {active}
+🎯 *Поиск по интересам:* {interests}
+
+{search_info}
+
+*Используйте кнопки ниже для настройки:*""".format(
+            active='✅ Да' if user.is_active else '❌ Нет',
+            interests='✅ Включен' if user.search_by_interests else '❌ Выключен',
+            search_info='🔍 Бот ищет людей с общими интересами' if user.search_by_interests else '🔍 Бот показывает случайные анкеты'
+        )
         
         markup = types.InlineKeyboardMarkup(row_width=2)
         if user.is_active:
@@ -1536,24 +1660,18 @@ def show_settings(message):
         
         markup.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="back_to_profile"))
         
-        if message_id:
+        if is_callback and message_id:
             try:
-                # Пытаемся отредактировать сообщение
-                bot.edit_message_text(
-                    text,
-                    chat_id,
-                    message_id,
-                    reply_markup=markup
-                )
+                edit_formatted_message(chat_id, message_id, text, reply_markup=markup)
             except:
-                # Если не получается (сообщение с фото), отправляем новое
-                bot.send_message(chat_id, text, reply_markup=markup)
+                # Если не получается отредактировать, отправляем новое
+                send_formatted_message(chat_id, text, reply_markup=markup)
         else:
-            bot.send_message(chat_id, text, reply_markup=markup)
+            send_formatted_message(chat_id, text, reply_markup=markup)
         
     except Exception as e:
         print(f"Ошибка: {e}")
-        if message_id:
+        if is_callback:
             bot.answer_callback_query(message.id, "Ошибка")
         else:
             bot.send_message(chat_id, "Ошибка при загрузке настроек", reply_markup=get_main_keyboard())
@@ -1679,13 +1797,15 @@ def check_admin_token(message):
     
     if entered_token == Config.ADMIN_TOKEN:
         admin_sessions[user_id] = True
-        bot.send_message(message.chat.id, "✅ Доступ разрешен!")
+        send_formatted_message(message.chat.id, "✅ *Доступ разрешен!*\n\nДобро пожаловать в админ-панель.")
         show_admin_menu(message.chat.id)
     else:
         admin_sessions[user_id] = False
-        bot.send_message(message.chat.id, 
-                        "❌ Неверный токен! Доступ запрещен.",
-                        reply_markup=get_main_keyboard())
+        send_formatted_message(
+            message.chat.id, 
+            "❌ *Неверный токен!*\n\nДоступ запрещен.",
+            reply_markup=get_main_keyboard()
+        )
 
 def show_admin_menu(chat_id):
     markup = types.InlineKeyboardMarkup(row_width=2)
@@ -1700,6 +1820,12 @@ def show_admin_menu(chat_id):
     markup.add(buttons[0], buttons[1])
     markup.add(buttons[2])
     markup.add(buttons[3])
+    
+    send_formatted_message(
+        chat_id, 
+        "🛠️ *Админ-панель*\n\nВыберите действие:",
+        reply_markup=markup
+    )
     
     bot.send_message(chat_id, 
                     "🛠️ *Админ-панель*\nВыберите действие:",

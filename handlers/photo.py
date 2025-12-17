@@ -3,6 +3,8 @@ from database.models import User
 from database.db import get_db
 from sqlalchemy.orm import Session
 
+print(f"File ID для оформления: {file_id}")
+
 def register_photo_handlers(bot):
     @bot.message_handler(content_types=['photo'])
     def handle_photo(message):

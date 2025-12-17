@@ -18,6 +18,11 @@ class Config:
     CHANNEL_ID = os.getenv('CHANNEL_ID', '@dimbub')
     CHANNEL_URL = os.getenv('CHANNEL_URL', 'https://t.me/dimbub')
     
+    # Оформление бота
+    BOT_PHOTO_URL = "https://iili.io/fci9c2S.jpg"  # Пример gaming фото
+    # ИЛИ file_id если загрузите фото в Telegram
+    BOT_PHOTO_FILE_ID = None  # Замените на file_id после загрузки фото
+    
     # Игры
     ALL_GAMES = [
         "🎮 Dota 2", "🎮 CS:GO", "🎮 Valorant", "🎮 League of Legends", "🎮 Apex Legends",
