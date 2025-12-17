@@ -1,4 +1,32 @@
-venv/
-.env/
+# .gitignore
+# Секреты
+.env
+*.env
+secrets/
+config/private/
+
+# Питон
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
 env/
-.env.example
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# БД
+*.db
+*.sqlite3
+gamers.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Логи
+*.log

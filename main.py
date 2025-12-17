@@ -6,6 +6,8 @@ from database.db import init_db, get_db, SessionLocal
 from database.models import User
 from sqlalchemy.orm.attributes import flag_modified
 import random
+from datetime import datetime, timedelta
+from collections import Counter
 
 state_storage = StateMemoryStorage()
 bot = telebot.TeleBot(Config.BOT_TOKEN, state_storage=state_storage)
@@ -14,6 +16,8 @@ init_db()
 
 profile_data = {}
 editing_state = {}
+admin_sessions = {}
+admin_delete_data = {}
 
 ALL_GAMES_WITH_CHAT = Config.ALL_GAMES + ['💬 Общение']
 
@@ -574,6 +578,7 @@ def finish_profile(call):
     except:
         bot.answer_callback_query(call.id, "Ошибка обработки")
 
+# ВАЖНО: ИСПРАВЛЕННЫЙ КОД НИЖЕ
 @bot.callback_query_handler(func=lambda call: call.data == 'edit_profile_menu')
 @require_subscription_callback
 def edit_profile_menu(call):
@@ -594,10 +599,15 @@ def edit_profile_menu(call):
     )
     markup.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="back_to_profile"))
     
-    bot.edit_message_text(
-        "Что хотите изменить?",
+    # Удаляем старое сообщение и отправляем новое с меню редактирования
+    try:
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+    except:
+        pass
+    
+    bot.send_message(
         call.message.chat.id,
-        call.message.message_id,
+        "Что хотите изменить?",
         reply_markup=markup
     )
 
@@ -900,10 +910,15 @@ def manage_photos(call):
         markup.add(types.InlineKeyboardButton("❌ Удалить все фото", callback_data="delete_all_photos"))
         markup.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="back_to_profile"))
         
-        bot.edit_message_text(
-            f"Управление фото ({len(user.photos)} фото):",
+        # Удаляем старое сообщение и отправляем новое
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except:
+            pass
+        
+        bot.send_message(
             call.message.chat.id,
-            call.message.message_id,
+            f"Управление фото ({len(user.photos)} фото):",
             reply_markup=markup
         )
         
@@ -941,12 +956,36 @@ def delete_photo(call):
         bot.answer_callback_query(call.id, f"Фото {photo_index+1} удалено")
         
         if photos_list:
-            manage_photos(call)
-        else:
-            bot.edit_message_text(
-                "✅ Все фото удалены",
+            # Удаляем старое сообщение и обновляем список
+            try:
+                bot.delete_message(call.message.chat.id, call.message.message_id)
+            except:
+                pass
+            
+            # Отправляем обновленный список фото
+            markup = types.InlineKeyboardMarkup()
+            for i, photo_id in enumerate(photos_list):
+                markup.add(types.InlineKeyboardButton(f"🗑️ Удалить фото {i+1}", callback_data=f"delete_photo_{i}"))
+            
+            markup.add(types.InlineKeyboardButton("❌ Удалить все фото", callback_data="delete_all_photos"))
+            markup.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="back_to_profile"))
+            
+            bot.send_message(
                 call.message.chat.id,
-                call.message.message_id
+                f"Управление фото ({len(photos_list)} фото):",
+                reply_markup=markup
+            )
+        else:
+            # Удаляем старое сообщение
+            try:
+                bot.delete_message(call.message.chat.id, call.message.message_id)
+            except:
+                pass
+            
+            bot.send_message(
+                call.message.chat.id,
+                "✅ Все фото удалены",
+                reply_markup=get_main_keyboard()
             )
             
     except Exception as e:
@@ -977,10 +1016,17 @@ def delete_all_photos(call):
         db.commit()
         
         bot.answer_callback_query(call.id, "Все фото удалены")
-        bot.edit_message_text(
-            "✅ Все фото удалены",
+        
+        # Удаляем старое сообщение и отправляем новое
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except:
+            pass
+        
+        bot.send_message(
             call.message.chat.id,
-            call.message.message_id
+            "✅ Все фото удалены",
+            reply_markup=get_main_keyboard()
         )
         
     except Exception as e:
@@ -989,6 +1035,7 @@ def delete_all_photos(call):
     finally:
         db.close()
 
+# ВАЖНО: ИСПРАВЛЕННЫЙ КОД НИЖЕ
 @bot.callback_query_handler(func=lambda call: call.data == 'back_to_profile')
 @require_subscription_callback
 def back_to_profile(call):
@@ -1034,12 +1081,19 @@ def back_to_profile(call):
             types.InlineKeyboardButton("❌ Удалить анкету", callback_data="delete_profile")
         )
         
-        bot.edit_message_text(
-            profile_text,
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=markup
-        )
+        # Удаляем старое сообщение и отправляем новое с анкетой
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except:
+            pass
+        
+        if user.photos and len(user.photos) > 0:
+            try:
+                bot.send_photo(call.message.chat.id, user.photos[0], caption=profile_text, reply_markup=markup)
+            except:
+                bot.send_message(call.message.chat.id, profile_text, reply_markup=markup)
+        else:
+            bot.send_message(call.message.chat.id, profile_text, reply_markup=markup)
         
     except Exception as e:
         print(f"Ошибка: {e}")
@@ -1286,7 +1340,8 @@ def handle_skip(call):
         finally:
             db.close()
             
-    except:
+    except Exception as e:
+        print(f"Ошибка обработки skip: {e}")
         bot.send_message(call.message.chat.id, "Ошибка обработки", reply_markup=get_main_keyboard())
 
 @bot.message_handler(commands=['likes'])
@@ -1482,12 +1537,17 @@ def show_settings(message):
         markup.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="back_to_profile"))
         
         if message_id:
-            bot.edit_message_text(
-                text,
-                chat_id,
-                message_id,
-                reply_markup=markup
-            )
+            try:
+                # Пытаемся отредактировать сообщение
+                bot.edit_message_text(
+                    text,
+                    chat_id,
+                    message_id,
+                    reply_markup=markup
+                )
+            except:
+                # Если не получается (сообщение с фото), отправляем новое
+                bot.send_message(chat_id, text, reply_markup=markup)
         else:
             bot.send_message(chat_id, text, reply_markup=markup)
         
@@ -1550,12 +1610,19 @@ def delete_profile(call):
         types.InlineKeyboardButton("❌ Нет, отмена", callback_data="back_to_profile")
     )
     
-    bot.edit_message_text(
-        "❌ Вы уверены, что хотите удалить анкету?\nЭто действие нельзя отменить!",
-        call.message.chat.id,
-        call.message.message_id,
-        reply_markup=markup
-    )
+    try:
+        bot.edit_message_text(
+            "❌ Вы уверены, что хотите удалить анкету?\nЭто действие нельзя отменить!",
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=markup
+        )
+    except:
+        bot.send_message(
+            call.message.chat.id,
+            "❌ Вы уверены, что хотите удалить анкету?\nЭто действие нельзя отменить!",
+            reply_markup=markup
+        )
 
 @bot.callback_query_handler(func=lambda call: call.data == 'confirm_delete')
 @require_subscription_callback
@@ -1574,11 +1641,15 @@ def confirm_delete(call):
             db.delete(user)
             db.commit()
         
-        bot.edit_message_text(
-            "❌ Ваша анкета удалена",
-            call.message.chat.id,
-            call.message.message_id
-        )
+        try:
+            bot.edit_message_text(
+                "❌ Ваша анкета удалена",
+                call.message.chat.id,
+                call.message.message_id
+            )
+        except:
+            pass
+        
         bot.send_message(call.message.chat.id, "Анкета удалена. Вы можете создать новую в любое время!", reply_markup=get_main_keyboard())
         
     except Exception as e:
@@ -1586,6 +1657,495 @@ def confirm_delete(call):
         bot.answer_callback_query(call.id, "Ошибка")
     finally:
         db.close()
+
+# АДМИН-ПАНЕЛЬ
+@bot.message_handler(commands=['admin'])
+def admin_command(message):
+    user_id = message.from_user.id
+    
+    if user_id in admin_sessions and admin_sessions[user_id]:
+        show_admin_menu(message.chat.id)
+        return
+    
+    bot.send_message(message.chat.id, 
+                    "🔒 Введите админ-токен для доступа к панели управления:",
+                    reply_markup=types.ReplyKeyboardRemove())
+    
+    bot.register_next_step_handler(message, check_admin_token)
+
+def check_admin_token(message):
+    user_id = message.from_user.id
+    entered_token = message.text.strip()
+    
+    if entered_token == Config.ADMIN_TOKEN:
+        admin_sessions[user_id] = True
+        bot.send_message(message.chat.id, "✅ Доступ разрешен!")
+        show_admin_menu(message.chat.id)
+    else:
+        admin_sessions[user_id] = False
+        bot.send_message(message.chat.id, 
+                        "❌ Неверный токен! Доступ запрещен.",
+                        reply_markup=get_main_keyboard())
+
+def show_admin_menu(chat_id):
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    
+    buttons = [
+        types.InlineKeyboardButton("📊 Общая статистика", callback_data="admin_stats"),
+        types.InlineKeyboardButton("👥 Просмотр анкет", callback_data="admin_view_profiles"),
+        types.InlineKeyboardButton("🔄 Лайв-стата", callback_data="admin_live_stats"),
+        types.InlineKeyboardButton("❌ Выйти из админки", callback_data="admin_logout")
+    ]
+    
+    markup.add(buttons[0], buttons[1])
+    markup.add(buttons[2])
+    markup.add(buttons[3])
+    
+    bot.send_message(chat_id, 
+                    "🛠️ *Админ-панель*\nВыберите действие:",
+                    parse_mode='Markdown',
+                    reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('admin_'))
+def handle_admin_callback(call):
+    user_id = call.from_user.id
+    
+    if user_id not in admin_sessions or not admin_sessions[user_id]:
+        bot.answer_callback_query(call.id, "❌ Сессия истекла! Войдите снова.")
+        return
+    
+    action = call.data
+    
+    if action == 'admin_stats':
+        show_general_stats(call)
+    elif action == 'admin_view_profiles':
+        show_profiles_list(call, page=0)
+    elif action == 'admin_live_stats':
+        show_live_stats(call)
+    elif action == 'admin_logout':
+        admin_logout(call)
+    elif action == 'admin_back_menu':
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        show_admin_menu(call.message.chat.id)
+    elif action.startswith('admin_profile_'):
+        profile_id = int(call.data.split('_')[2])
+        show_admin_profile(call, profile_id)
+    elif action.startswith('admin_page_'):
+        page = int(call.data.split('_')[2])
+        show_profiles_list(call, page)
+    elif action.startswith('admin_toggle_'):
+        profile_id = int(call.data.split('_')[2])
+        toggle_profile_active(call, profile_id)
+    elif action.startswith('admin_delete_'):
+        profile_id = int(call.data.split('_')[2])
+        confirm_delete_profile(call, profile_id)
+    elif action == 'admin_confirm_delete':
+        profile_id = admin_delete_data.get(call.from_user.id, {}).get('profile_id')
+        if profile_id:
+            delete_profile_by_admin(call, profile_id)
+    elif action == 'admin_cancel_delete':
+        user_id = call.from_user.id
+        if user_id in admin_delete_data:
+            del admin_delete_data[user_id]
+        bot.answer_callback_query(call.id, "❌ Удаление отменено")
+        show_profiles_list(call, page=0)
+
+def get_db_stats():
+    db = get_db_session()
+    if not db:
+        return None
+    
+    try:
+        from database.models import User
+        
+        total_users = db.query(User).count()
+        active_profiles = db.query(User).filter(User.is_active == True).count()
+        
+        total_likes = 0
+        total_matches = 0
+        
+        all_users = db.query(User).all()
+        for user in all_users:
+            if user.likes_given:
+                total_likes += len(user.likes_given)
+            
+            if user.matches:
+                total_matches += len(user.matches)
+        
+        from collections import Counter
+        game_counter = Counter()
+        
+        for user in all_users:
+            if user.favorite_games:
+                for game in user.favorite_games:
+                    game_counter[game] += 1
+        
+        top_games = game_counter.most_common(5)
+        
+        return {
+            'total_users': total_users,
+            'active_profiles': active_profiles,
+            'total_likes': total_likes,
+            'total_matches': total_matches // 2,
+            'top_games': top_games
+        }
+        
+    except Exception as e:
+        print(f"Ошибка получения статистики: {e}")
+        return None
+    finally:
+        db.close()
+
+def show_general_stats(call):
+    stats = get_db_stats()
+    
+    if not stats:
+        bot.answer_callback_query(call.id, "❌ Ошибка получения статистики")
+        return
+    
+    text = f"""📊 *Общая статистика бота*
+
+👥 *Пользователи:*
+├ Всего пользователей: {stats['total_users']}
+└ Активных анкет: {stats['active_profiles']}
+
+❤️ *Лайки и мэтчи:*
+├ Всего лайков: {stats['total_likes']}
+└ Всего мэтчей: {stats['total_matches']}
+
+🎮 *Топ-5 игр/интересов:*
+"""
+    
+    for i, (game, count) in enumerate(stats['top_games'], 1):
+        text += f"{i}. {game}: {count} чел.\n"
+    
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("🔄 Обновить", callback_data="admin_stats"))
+    markup.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_back_menu"))
+    
+    bot.edit_message_text(
+        text,
+        call.message.chat.id,
+        call.message.message_id,
+        parse_mode='Markdown',
+        reply_markup=markup
+    )
+
+profiles_per_page = 10
+
+def show_profiles_list(call, page=0):
+    db = get_db_session()
+    if not db:
+        bot.answer_callback_query(call.id, "❌ Ошибка БД")
+        return
+    
+    try:
+        total_profiles = db.query(User).count()
+        total_pages = (total_profiles + profiles_per_page - 1) // profiles_per_page
+        
+        if page >= total_pages:
+            page = total_pages - 1
+        if page < 0:
+            page = 0
+        
+        offset = page * profiles_per_page
+        profiles = db.query(User).order_by(User.created_at.desc()).offset(offset).limit(profiles_per_page).all()
+        
+        text = f"👥 *Просмотр анкет*\nСтраница {page+1}/{max(total_pages, 1)}\n\n"
+        
+        for i, profile in enumerate(profiles, offset + 1):
+            status = "✅" if profile.is_active else "⏸️"
+            games_preview = ', '.join(profile.favorite_games[:2]) if profile.favorite_games else 'Нет'
+            if profile.favorite_games and len(profile.favorite_games) > 2:
+                games_preview += f"... (+{len(profile.favorite_games)-2})"
+            
+            text += f"{i}. {status} {profile.name} (@{profile.username or 'нет'})\n"
+            text += f"   🎮 {games_preview}\n"
+            text += f"   📅 {profile.created_at.strftime('%d.%m.%Y')}\n\n"
+        
+        markup = types.InlineKeyboardMarkup(row_width=3)
+        
+        for profile in profiles:
+            status_icon = "👁️" if profile.is_active else "👁️‍🗨️"
+            markup.add(
+                types.InlineKeyboardButton(
+                    f"{status_icon} {profile.name[:15]}",
+                    callback_data=f"admin_profile_{profile.telegram_id}"
+                )
+            )
+        
+        nav_buttons = []
+        if page > 0:
+            nav_buttons.append(types.InlineKeyboardButton("⬅️ Назад", callback_data=f"admin_page_{page-1}"))
+        
+        nav_buttons.append(types.InlineKeyboardButton(f"{page+1}/{total_pages}", callback_data="noop"))
+        
+        if page < total_pages - 1:
+            nav_buttons.append(types.InlineKeyboardButton("Вперед ➡️", callback_data=f"admin_page_{page+1}"))
+        
+        if nav_buttons:
+            markup.row(*nav_buttons)
+        
+        markup.add(types.InlineKeyboardButton("⬅️ Назад в меню", callback_data="admin_back_menu"))
+        
+        bot.edit_message_text(
+            text,
+            call.message.chat.id,
+            call.message.message_id,
+            parse_mode='Markdown',
+            reply_markup=markup
+        )
+        
+    except Exception as e:
+        print(f"Ошибка: {e}")
+        bot.answer_callback_query(call.id, "❌ Ошибка загрузки")
+    finally:
+        db.close()
+
+def show_admin_profile(call, profile_id):
+    db = get_db_session()
+    if not db:
+        bot.answer_callback_query(call.id, "❌ Ошибка БД")
+        return
+    
+    try:
+        profile = db.query(User).filter(User.telegram_id == profile_id).first()
+        
+        if not profile:
+            bot.answer_callback_query(call.id, "❌ Анкета не найдена")
+            return
+        
+        status = "✅ Активна" if profile.is_active else "⏸️ Скрыта"
+        
+        text = f"""📋 *Анкета пользователя*
+
+👤 *Имя:* {profile.name}
+🔗 *Username:* @{profile.username or 'нет'}
+🆔 *ID:* {profile.telegram_id}
+🌍 *Регион:* {profile.region}
+🎮 *Платформа:* {profile.platform}
+📅 *Создана:* {profile.created_at.strftime('%d.%m.%Y %H:%M')}
+📊 *Статус:* {status}
+
+🎲 *Интересы:*
+{', '.join(profile.favorite_games) if profile.favorite_games else 'Не указаны'}
+
+📝 *О себе:*
+{profile.about or 'Не указано'}
+
+❤️ *Лайков отправлено:* {len(profile.likes_given) if profile.likes_given else 0}
+💌 *Лайков получено:* {len(profile.likes_received) if profile.likes_received else 0}
+🤝 *Мэтчей:* {len(profile.matches) if profile.matches else 0}
+📸 *Фото:* {len(profile.photos) if profile.photos else 0}"""
+        
+        markup = types.InlineKeyboardMarkup(row_width=2)
+        
+        if profile.is_active:
+            markup.add(types.InlineKeyboardButton("⏸️ Скрыть анкету", callback_data=f"admin_toggle_{profile_id}"))
+        else:
+            markup.add(types.InlineKeyboardButton("▶️ Показать анкету", callback_data=f"admin_toggle_{profile_id}"))
+        
+        markup.add(types.InlineKeyboardButton("🗑️ Удалить анкету", callback_data=f"admin_delete_{profile_id}"))
+        markup.add(types.InlineKeyboardButton("⬅️ Назад к списку", callback_data="admin_view_profiles"))
+        
+        bot.edit_message_text(
+            text,
+            call.message.chat.id,
+            call.message.message_id,
+            parse_mode='Markdown',
+            reply_markup=markup
+        )
+        
+    except Exception as e:
+        print(f"Ошибка: {e}")
+        bot.answer_callback_query(call.id, "❌ Ошибка")
+    finally:
+        db.close()
+
+def toggle_profile_active(call, profile_id):
+    db = get_db_session()
+    if not db:
+        bot.answer_callback_query(call.id, "❌ Ошибка БД")
+        return
+    
+    try:
+        profile = db.query(User).filter(User.telegram_id == profile_id).first()
+        
+        if not profile:
+            bot.answer_callback_query(call.id, "❌ Анкета не найдена")
+            return
+        
+        profile.is_active = not profile.is_active
+        db.commit()
+        
+        action = "скрыта" if not profile.is_active else "активирована"
+        bot.answer_callback_query(call.id, f"✅ Анкета {action}")
+        
+        show_admin_profile(call, profile_id)
+        
+    except Exception as e:
+        print(f"Ошибка: {e}")
+        bot.answer_callback_query(call.id, "❌ Ошибка")
+    finally:
+        db.close()
+
+def confirm_delete_profile(call, profile_id):
+    db = get_db_session()
+    if not db:
+        bot.answer_callback_query(call.id, "❌ Ошибка БД")
+        return
+    
+    try:
+        profile = db.query(User).filter(User.telegram_id == profile_id).first()
+        
+        if not profile:
+            bot.answer_callback_query(call.id, "❌ Анкета не найдена")
+            return
+        
+        admin_delete_data[call.from_user.id] = {
+            'profile_id': profile_id,
+            'profile_name': profile.name
+        }
+        
+        markup = types.InlineKeyboardMarkup()
+        markup.add(
+            types.InlineKeyboardButton("✅ Да, удалить", callback_data="admin_confirm_delete"),
+            types.InlineKeyboardButton("❌ Нет, отмена", callback_data="admin_cancel_delete")
+        )
+        
+        bot.edit_message_text(
+            f"❌ *Подтверждение удаления*\n\nВы уверены, что хотите удалить анкету пользователя *{profile.name}*?",
+            call.message.chat.id,
+            call.message.message_id,
+            parse_mode='Markdown',
+            reply_markup=markup
+        )
+        
+    except Exception as e:
+        print(f"Ошибка: {e}")
+        bot.answer_callback_query(call.id, "❌ Ошибка")
+    finally:
+        db.close()
+
+def delete_profile_by_admin(call, profile_id):
+    db = get_db_session()
+    if not db:
+        bot.answer_callback_query(call.id, "❌ Ошибка БД")
+        return
+    
+    try:
+        profile = db.query(User).filter(User.telegram_id == profile_id).first()
+        
+        if profile:
+            db.delete(profile)
+            db.commit()
+        
+        user_id = call.from_user.id
+        if user_id in admin_delete_data:
+            del admin_delete_data[user_id]
+        
+        bot.answer_callback_query(call.id, "✅ Анкета удалена")
+        show_profiles_list(call, page=0)
+        
+    except Exception as e:
+        print(f"Ошибка: {e}")
+        bot.answer_callback_query(call.id, "❌ Ошибка удаления")
+    finally:
+        db.close()
+
+def get_live_stats_data():
+    db = get_db_session()
+    if not db:
+        return None
+    
+    try:
+        now = datetime.now()
+        today_start = datetime(now.year, now.month, now.day)
+        week_ago = today_start - timedelta(days=7)
+        
+        all_users = db.query(User).all()
+        
+        today_new = 0
+        week_new = 0
+        
+        for user in all_users:
+            if user.created_at and user.created_at >= today_start:
+                today_new += 1
+            
+            if user.created_at and user.created_at >= week_ago:
+                week_new += 1
+        
+        total_likes_week = 0
+        total_matches_week = 0
+        
+        for user in all_users:
+            if user.likes_given:
+                total_likes_week += len(user.likes_given)
+            
+            if user.matches:
+                total_matches_week += len(user.matches)
+        
+        conversion_rate = 0
+        if total_likes_week > 0:
+            conversion_rate = round((total_matches_week / 2 / total_likes_week) * 100, 1)
+        
+        return {
+            'today_new': today_new,
+            'week_new': week_new,
+            'total_likes': total_likes_week,
+            'total_matches': total_matches_week // 2,
+            'conversion_rate': conversion_rate
+        }
+        
+    except Exception as e:
+        print(f"Ошибка получения live-статистики: {e}")
+        return None
+    finally:
+        db.close()
+
+def show_live_stats(call):
+    stats = get_live_stats_data()
+    
+    if not stats:
+        bot.answer_callback_query(call.id, "❌ Ошибка получения статистики")
+        return
+    
+    text = f"""🔄 *Лайв-статистика*
+
+📈 *За сегодня:*
+├ Новые анкеты: {stats['today_new']}
+
+📊 *За неделю:*
+├ Новые анкеты: {stats['week_new']}
+├ Всего лайков: {stats['total_likes']}
+└ Всего мэтчей: {stats['total_matches']}
+
+📊 *Конверсия в мэтчи:* {stats['conversion_rate']}%"""
+    
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("🔄 Обновить", callback_data="admin_live_stats"))
+    markup.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_back_menu"))
+    
+    bot.edit_message_text(
+        text,
+        call.message.chat.id,
+        call.message.message_id,
+        parse_mode='Markdown',
+        reply_markup=markup
+    )
+
+def admin_logout(call):
+    user_id = call.from_user.id
+    
+    if user_id in admin_sessions:
+        del admin_sessions[user_id]
+    
+    if user_id in admin_delete_data:
+        del admin_delete_data[user_id]
+    
+    bot.answer_callback_query(call.id, "✅ Вы вышли из админ-панели")
+    bot.delete_message(call.message.chat.id, call.message.message_id)
+    bot.send_message(call.message.chat.id, "Админ-сессия завершена.", reply_markup=get_main_keyboard())
 
 @bot.message_handler(func=lambda message: True)
 def handle_other_messages(message):

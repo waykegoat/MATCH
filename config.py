@@ -5,27 +5,30 @@ load_dotenv()
 
 class Config:
     BOT_TOKEN = os.getenv('BOT_TOKEN')
-    ADMIN_ID = int(os.getenv('ADMIN_ID', 0))
-    DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///database.db')
+    ADMIN_TOKEN = os.getenv('ADMIN_TOKEN')
     
-    REGIONS = ['EU', 'RU', 'SA', 'NA']
-    PLATFORMS = ['PC', 'Mobile', 'PS/XBOX']
+    # Railway автоматически создает DATABASE_URL для PostgreSQL
+    DATABASE_URL = os.getenv('DATABASE_URL')
     
-    GENRES = [
-        'Фэнтези', 'Хоррор', 'PVP', 'PVE', 
-        'MMO RPG', 'Шутеры', 'Battle Royale', 'Песочницы'
-    ]
+    # Если Railway предоставляет PostgreSQL, конвертируем URL
+    if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
     
+    # Настройки канала
+    CHANNEL_ID = os.getenv('CHANNEL_ID', '@dimbub')
+    CHANNEL_URL = os.getenv('CHANNEL_URL', 'https://t.me/dimbub')
+    
+    # Игры
     ALL_GAMES = [
-        'Roblox', 'Dota 2', 'Valorant', 'Counter-Strike 2', 
-        'Overwatch', 'Marvel Rivals', 'Souls Like', 'Minecraft',
-        'Arc Riders', 'Fortnite', 'PUBG', 'Mobile Legends', 'LOL'
+        "🎮 Dota 2", "🎮 CS:GO", "🎮 Valorant", "🎮 League of Legends", "🎮 Apex Legends",
+        "🎮 PUBG", "🎮 Fortnite", "🎮 Overwatch 2", "🎮 World of Warcraft", "🎮 Minecraft",
+        "🎮 GTA V", "🎮 Rainbow Six Siege", "🎮 Call of Duty", "🎮 Rust", "🎮 Ark",
+        "🎮 Teamfight Tactics", "🎮 Hearthstone", "🎮 TFT", "🎮 Path of Exile", "🎮 Warframe",
+        "🎮 Escape from Tarkov", "🎮 Lost Ark", "🎮 Mobile Legends", "🎮 Wild Rift"
     ]
     
-    COMPETITIVE_GAMES = {
-        'Counter-Strike 2': ['Silver', 'Gold Nova', 'Master Guardian', 'Legendary Eagle', 'Global Elite'],
-        'Valorant': ['Iron', 'Bronze', 'Silver', 'Gold', 'Platinum', 'Diamond', 'Immortal', 'Radiant'],
-        'Dota 2': ['Herald', 'Guardian', 'Crusader', 'Archon', 'Legend', 'Ancient', 'Divine', 'Immortal'],
-        'Mobile Legends': ['Warrior', 'Elite', 'Master', 'Grandmaster', 'Epic', 'Legend', 'Mythic'],
-        'LOL': ['Iron', 'Bronze', 'Silver', 'Gold', 'Platinum', 'Emerald', 'Diamond', 'Master', 'Grandmaster', 'Challenger']
-    }
+    # Регионы
+    REGIONS = ["🇷🇺 Россия", "🇺🇦 Украина", "🇧🇾 Беларусь", "🇰🇿 Казахстан", "🌍 Другое"]
+    
+    # Платформы
+    PLATFORMS = ["PC", "PlayStation", "Xbox", "Mobile", "Nintendo Switch"]
