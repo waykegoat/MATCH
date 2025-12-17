@@ -1784,6 +1784,81 @@ def confirm_delete(call):
     finally:
         db.close()
 
+@bot.message_handler(commands=['debug'])
+def debug_user(message):
+    """Показывает информацию о текущем пользователе"""
+    user_id = message.from_user.id
+    
+    try:
+        db = get_db_session()
+        if db:
+            from database.models import User, Profile
+            
+            # 1. Ищем в таблице users
+            user = db.query(User).filter(User.telegram_id == user_id).first()
+            
+            response = "🔍 Отладка пользователя:\n\n"
+            
+            if user:
+                response += f"✅ Найден в таблице 'users':\n"
+                response += f"   ID: {user.id}\n"
+                response += f"   Имя: {user.name or 'Нет'}\n"
+                response += f"   Возраст: {user.age or 'Нет'}\n"
+                response += f"   Игр выбрано: {len(user.favorite_games) if user.favorite_games else 0}\n"
+                response += f"   Активен: {user.is_active}\n"
+                
+                # Проверяем связанный профиль
+                if hasattr(user, 'profile') and user.profile:
+                    response += f"✅ Есть профиль в 'profiles':\n"
+                    response += f"   Игра: {user.profile.game or 'Нет'}\n"
+                else:
+                    response += f"❌ Нет профиля в таблице 'profiles'\n"
+            else:
+                response += f"❌ Не найден в таблице 'users'\n"
+            
+            # 2. Проверяем напрямую через SQL
+            from sqlalchemy import text
+            result = db.execute(text("SELECT telegram_id, name FROM users WHERE telegram_id = :id"), 
+                              {'id': user_id}).fetchone()
+            if result:
+                response += f"\n📊 SQL запрос подтверждает: есть запись с telegram_id={result[0]}, имя='{result[1]}'"
+            else:
+                response += f"\n📊 SQL запрос: записи с telegram_id={user_id} нет"
+            
+            bot.reply_to(message, response)
+            db.close()
+        else:
+            bot.reply_to(message, "❌ Нет подключения к БД")
+    except Exception as e:
+        bot.reply_to(message, f"❌ Ошибка: {str(e)}")
+
+@bot.message_handler(commands=['tables'])
+def show_tables(message):
+    """Показывает все таблицы в БД"""
+    try:
+        db = get_db_session()
+        if db:
+            from sqlalchemy import text
+            
+            # Для SQLite
+            result = db.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))
+            tables = [row[0] for row in result]
+            
+            response = "📊 Таблицы в БД:\n" + "\n".join([f"• {table}" for table in tables])
+            
+            # Показываем структуру таблицы users
+            if 'users' in tables:
+                result = db.execute(text("PRAGMA table_info(users)"))
+                columns = [f"{row[1]} ({row[2]})" for row in result]
+                response += f"\n\n📋 Структура 'users':\n" + "\n".join([f"  • {col}" for col in columns])
+            
+            bot.reply_to(message, response)
+            db.close()
+        else:
+            bot.reply_to(message, "❌ Нет подключения к БД")
+    except Exception as e:
+        bot.reply_to(message, f"❌ Ошибка: {str(e)}")
+
 # АДМИН-ПАНЕЛЬ
 @bot.message_handler(commands=['admin'])
 def admin_command(message):
