@@ -9,6 +9,14 @@ import random
 from datetime import datetime, timedelta
 from collections import Counter
 
+# Инициализация БД
+try:
+    from database.db import init_db
+    init_db()
+    print("✅ База данных инициализирована")
+except Exception as e:
+    print(f"⚠️ Ошибка инициализации БД (возможно уже созданы): {e}")
+
 # ========== ФУНКЦИИ ОФОРМЛЕНИЯ ==========
 
 def send_formatted_message(chat_id, text, reply_markup=None, parse_mode='Markdown'):
