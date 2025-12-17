@@ -9,14 +9,15 @@ class User(Base):
     __tablename__ = 'users'
     
     id = Column(Integer, primary_key=True)
-    telegram_id = Column(Integer, unique=True, nullable=False)
+    # ИЗМЕНЕНИЕ: Integer -> BigInteger
+    telegram_id = Column(BigInteger, unique=True, nullable=False)  # ← ВОТ ЭТО!
     username = Column(String(100))
     created_at = Column(DateTime, default=datetime.utcnow)
     
     name = Column(String(100))
     age = Column(Integer, nullable=True)
-    region = Column(String(100))  # Увеличил с 10
-    platform = Column(String(50))  # Увеличил с 20
+    region = Column(String(100))
+    platform = Column(String(50))
     favorite_games = Column(JSON, default=list)
     about = Column(Text, nullable=True)
     
@@ -24,7 +25,6 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     search_by_interests = Column(Boolean, default=True)
     
-    # ИЗМЕНЕНИЕ: Теперь это Integer счетчики, а не JSON списки
     likes_given = Column(Integer, default=0)
     likes_received = Column(Integer, default=0)
     matches = Column(Integer, default=0)
