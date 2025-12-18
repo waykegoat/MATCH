@@ -10,6 +10,33 @@ from datetime import datetime, timedelta
 from collections import Counter
 import os
 import time
+import traceback
+
+import sys
+import traceback
+
+def global_exception_handler(exc_type, exc_value, exc_traceback):
+    """Глобальный обработчик необработанных исключений"""
+    print("="*60)
+    print("🔥 НЕОБРАБОТАННАЯ ОШИБКА В КОДЕ:")
+    print("="*60)
+    print(f"Тип: {exc_type.__name__}")
+    print(f"Сообщение: {exc_value}")
+    print("\nТрассировка:")
+    
+    # Получаем информацию о кадре где произошла ошибка
+    tb = traceback.extract_tb(exc_traceback)
+    if tb:
+        last_frame = tb[-1]  # Последний кадр - место ошибки
+        print(f"Файл: {last_frame.filename}")
+        print(f"Строка: {last_frame.lineno}")
+        print(f"Функция: {last_frame.name}")
+        print(f"Код: {last_frame.line}")
+    
+    print("="*60)
+
+# Устанавливаем глобальный обработчик
+sys.excepthook = global_exception_handler
 
 # ========== ВАЖНОЕ ИСПРАВЛЕНИЕ ==========
 # Добавляем очистку кэша в get_db_session
@@ -2534,21 +2561,26 @@ if __name__ == "__main__":
     # 1. Явно удаляем возможный старый вебхук 
     try:
         bot.remove_webhook()
-        time.sleep(1)  # Даем время на обработку запроса
+        time.sleep(1)
         print("✅ Старый вебхук удален")
     except Exception as e:
         print(f"⚠️ Не удалось удалить вебхук (может и не быть): {e}")
     
-    # 2. Запускаем polling с правильными параметрами
+    # 2. Запускаем polling с ОТЛОВОМ ПОЛНОЙ ОШИБКИ
     try:
         print("🔄 Запускаем бота...")
         bot.infinity_polling(
-            skip_pending=True,  # Пропускаем старые сообщения
+            skip_pending=True,
             timeout=30,
             long_polling_timeout=5,
             logger_level="INFO"
         )
     except Exception as e:
-        # Логируем ошибку
+        # ПОЛНЫЙ TRACEBACK!
+        print("="*60)
+        print("🔥 ПОЛНЫЙ TRACEBACK ОШИБКИ:")
+        print("="*60)
+        traceback.print_exc()
+        print("="*60)
         print(f"❌ Критическая ошибка бота: {e}")
-        print("🛑 Бот остановлен. Проверьте логи и настройки Railway.")
+        print("🛑 Бот остановлен.")
