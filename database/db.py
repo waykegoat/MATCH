@@ -4,18 +4,15 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
 # Получаем URL из окружения Railway
-database_url = os.getenv('DATABASE_URL')
+database_url = os.getenv('DATABASE_URL', 'sqlite:///gamers.db')
 
-# Если Railway не дал URL (локальная разработка) - используем SQLite
-if not database_url:
-    database_url = 'sqlite:///gamers.db'
-# Если Railway дал postgres:// - конвертируем в postgresql://
-elif database_url.startswith('postgres://'):
+# Если Railway дал postgres:// - конвертируем
+if database_url.startswith('postgres://'):
     database_url = database_url.replace('postgres://', 'postgresql://', 1)
 
-print(f"📦 Подключаемся к БД: {database_url.split('@')[-1] if '@' in database_url else database_url}")
+print(f"📦 Подключаемся к БД: {database_url}")
 
-# Разные настройки для PostgreSQL и SQLite
+# Настройки для разных БД
 if 'postgresql' in database_url:
     engine = create_engine(
         database_url,
@@ -43,33 +40,29 @@ def get_db():
         db.close()
 
 def init_db():
-    """Создает таблицы в БД с правильной структурой"""
+    """Создает таблицы в БД"""
     try:
         print("🔄 Создаем таблицы в БД...")
         
-        # ВАЖНО: импорт моделей ДО создания таблич
-        from database.models import User
+        # Импортируем ВСЕ модели
+        import database.models
         
-        # Удаляем старые таблицы (только для разработки)
+        # Удаляем старые таблицы и создаем новые
         Base.metadata.drop_all(bind=engine)
-        
-        # Создаем таблицы с новой структурой
         Base.metadata.create_all(bind=engine)
         
-        # Проверяем структуру
+        # Проверяем
         inspector = inspect(engine)
         tables = inspector.get_table_names()
         
         print(f"✅ Таблицы созданы: {tables}")
         
-        if 'users' in tables:
-            # Проверяем колонки
-            columns = inspector.get_columns('users')
-            column_names = [col['name'] for col in columns]
-            print(f"📊 Колонки users: {column_names}")
-        
-        print("✅ База данных инициализирована")
+        if 'users' not in tables:
+            print("❌ КРИТИЧЕСКО: таблица 'users' не создана!")
+            return False
+            
         return True
+        
     except Exception as e:
         print(f"❌ Ошибка инициализации БД: {e}")
         import traceback

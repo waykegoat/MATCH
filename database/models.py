@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, Boolean, Text, JSON, DateTime, BigInteger
 from datetime import datetime
-from database.db import Base  # Импортируем Base из db.py
+from database.db import Base
 
 class User(Base):
     __tablename__ = 'users'
@@ -33,3 +33,32 @@ class User(Base):
     
     def __repr__(self):
         return f"<User(id={self.id}, name='{self.name}', telegram_id={self.telegram_id})>"
+
+# ДОБАВЬТЕ ЭТИ МОДЕЛИ:
+class Like(Base):
+    __tablename__ = 'likes'
+    
+    id = Column(Integer, primary_key=True)
+    from_user_id = Column(BigInteger, nullable=False)
+    to_user_id = Column(BigInteger, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class Message(Base):
+    __tablename__ = 'messages'
+    
+    id = Column(Integer, primary_key=True)
+    from_user_id = Column(BigInteger, nullable=False)
+    to_user_id = Column(BigInteger, nullable=False)
+    content = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    is_read = Column(Boolean, default=False)
+
+class Notification(Base):
+    __tablename__ = 'notifications'
+    
+    id = Column(Integer, primary_key=True)
+    user_id = Column(BigInteger, nullable=False)
+    type = Column(String(50))
+    content = Column(Text)
+    is_read = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
