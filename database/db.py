@@ -35,66 +35,62 @@ else:
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
+# database/db.py - исправленная функция init_db()
 def init_db():
-    """Создает таблицы в БД с проверкой"""
+    """Создает таблицы в БД с правильной структурой"""
     try:
         # ВАЖНО: импорт моделей ДО создания таблиц
         from database.models import User, Profile, Like, Message, Notification
         
         print("🔄 Создаем таблицы в БД...")
+        
+        # Для SQLite: удаляем старые таблицы если есть
+        if 'sqlite' in str(engine.url):
+            print("🗑️ Очищаем старые таблицы для SQLite...")
+            Base.metadata.drop_all(bind=engine)
+        
+        # Создаем таблицы с новой структурой
         Base.metadata.create_all(bind=engine)
         
-        # Проверяем, что таблицы создались
-        inspector = inspect(engine)
-        tables = inspector.get_table_names()
-        
-        print(f"✅ Таблицы в БД: {tables}")
-        
-        if 'users' not in tables:
-            print("⚠️ Таблица 'users' не найдена! Пробуем принудительно...")
-            # Пробуем выполнить CREATE TABLE напрямую
-            with engine.connect() as conn:
-                conn.execute(text("""
-                    CREATE TABLE IF NOT EXISTS users (
-                        id SERIAL PRIMARY KEY,
-                        telegram_id BIGINT UNIQUE NOT NULL,
-                        username VARCHAR(255),
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        name VARCHAR(255),
-                        age INTEGER,
-                        region VARCHAR(100),
-                        platform VARCHAR(100),
-                        favorite_games TEXT,
-                        about TEXT,
-                        photos TEXT,
-                        is_active BOOLEAN DEFAULT TRUE,
-                        search_by_interests BOOLEAN DEFAULT FALSE,
-                        likes_given INTEGER DEFAULT 0,
-                        likes_received INTEGER DEFAULT 0,
-                        matches INTEGER DEFAULT 0
-                    )
-                """))
-                conn.commit()
-        
-        print(f"✅ База данных инициализирована")
+        print("✅ Таблицы созданы с JSON полями")
         return True
     except Exception as e:
         print(f"❌ Ошибка инициализации БД: {e}")
-        return False
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-def check_db_connection():
-    """Проверяет подключение к БД"""
-    try:
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-        return True
-    except Exception as e:
-        print(f"❌ Ошибка подключения к БД: {e}")
-        return False
+        
+        # Пробуем создать таблицу напрямую
+        try:
+            from sqlalchemy import text
+            
+            create_table_sql = """
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                telegram_id BIGINT UNIQUE NOT NULL,
+                username VARCHAR(255),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                name VARCHAR(255),
+                age INTEGER,
+                region VARCHAR(100),
+                platform VARCHAR(100),
+                favorite_games TEXT,  -- JSON как TEXT
+                about TEXT,
+                photos TEXT,  -- JSON как TEXT
+                is_active BOOLEAN DEFAULT TRUE,
+                search_by_interests BOOLEAN DEFAULT FALSE,
+                likes_given TEXT DEFAULT '[]',  -- JSON как TEXT
+                likes_received TEXT DEFAULT '[]',  -- JSON как TEXT
+                matches TEXT DEFAULT '[]',  -- JSON как TEXT
+                likes_given_count INTEGER DEFAULT 0,
+                likes_received_count INTEGER DEFAULT 0,
+                matches_count INTEGER DEFAULT 0
+            )
+            """
+            
+            with engine.connect() as conn:
+                conn.execute(text(create_table_sql))
+                conn.commit()
+            
+            print("✅ Таблица users создана напрямую")
+            return True
+        except Exception as e2:
+            print(f"❌ Ошибка прямого создания таблицы: {e2}")
+            return False

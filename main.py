@@ -2526,49 +2526,34 @@ def handle_other_messages(message):
         bot.send_message(message.chat.id, "Используй кнопки для навигации! 🎮", reply_markup=get_main_keyboard())
 
 # ========== ЗАПУСК БОТА ==========
-
 if __name__ == "__main__":
     print("🎮 Бот GamerMatch запущен на Railway!")
     print(f"📢 Проверка подписки на канал: {CHANNEL_ID}")
     
+    # УДАЛИ эту проверку - она дублируется!
     # Проверяем и создаем таблицы если нужно
-    try:
-        from database.db import engine, init_db
-        from sqlalchemy import inspect, text
-        
-        # Инициализируем БД
-        if init_db():
-            print("✅ БД инициализирована")
-        else:
-            print("❌ Ошибка инициализации БД")
-        
-        # Проверяем таблицу users
-        inspector = inspect(engine)
-        if 'users' in inspector.get_table_names():
-            print("✅ Таблица 'users' существует")
-            
-            # Проверяем есть ли данные
-            with engine.connect() as conn:
-                result = conn.execute(text("SELECT COUNT(*) FROM users")).scalar()
-                print(f"📊 Записей в users: {result}")
-        else:
-            print("❌ Таблица 'users' не найдена!")
-            
-    except Exception as e:
-        print(f"⚠️ Предупреждение при проверке БД: {e}")
+    # try:
+    #     from database.db import engine, init_db
+    #     from sqlalchemy import inspect, text
+    #     ...
+    # УДАЛИ до конца блока
     
-    # Решаем проблему 409: используем skip_pending и настраиваем polling
+    # ТОЛЬКО ЭТОТ КОД ДОЛЖЕН БЫТЬ:
     try:
         bot.infinity_polling(
             skip_pending=True,      # Пропускаем старые сообщения
             timeout=30,             # Таймаут запроса
             long_polling_timeout=5, # Таймаут long-polling
-            logger_level="INFO"     # Уровень логов
+            logger_level="INFO",    # Уровень логов
+            allowed_updates=['message', 'callback_query']  # Только нужные апдейты
         )
     except Exception as e:
         print(f"❌ Ошибка при запуске бота: {e}")
         print("🔄 Перезапуск через 10 секунд...")
         import time
         time.sleep(10)
-        # Попробуем снова
-        bot.infinity_polling(skip_pending=True, timeout=30)
+        # Попробуем снова с другими настройками
+        try:
+            bot.polling(none_stop=True, timeout=30)
+        except:
+            print("❌ Критическая ошибка, бот остановлен")
