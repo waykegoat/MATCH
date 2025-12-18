@@ -2569,15 +2569,8 @@ if __name__ == "__main__":
     # 2. Запускаем polling БЕЗ logger_level
     try:
         print("🔄 Запускаем бота...")
-        # УБРАЛ logger_level!
-        bot.infinity_polling(
-            skip_pending=True,      # Пропускаем старые сообщения
-            timeout=30,
-            long_polling_timeout=5
-            # logger_level="INFO"   ← УДАЛИ ЭТУ СТРОКУ!
-        )
+        # САМАЯ ПРОСТАЯ ВЕРСИЯ:
+        bot.infinity_polling(skip_pending=True, timeout=30)
     except Exception as e:
         print(f"❌ Критическая ошибка бота: {e}")
-        import traceback
-        traceback.print_exc()
         print("🛑 Бот остановлен.")
