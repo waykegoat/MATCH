@@ -35,7 +35,15 @@ else:
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# database/db.py - исправленная функция init_db()
+# ДОБАВЬ ЭТУ ФУНКЦИЮ:
+def get_db():
+    """Генератор сессий для зависимостей"""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
 def init_db():
     """Создает таблицы в БД с правильной структурой"""
     try:
@@ -52,45 +60,26 @@ def init_db():
         # Создаем таблицы с новой структурой
         Base.metadata.create_all(bind=engine)
         
-        print("✅ Таблицы созданы с JSON полями")
+        # Проверяем структуру
+        inspector = inspect(engine)
+        tables = inspector.get_table_names()
+        print(f"✅ Таблицы созданы: {tables}")
+        
+        if 'users' in tables:
+            # Проверяем колонки
+            columns = inspector.get_columns('users')
+            column_names = [col['name'] for col in columns]
+            print(f"📊 Колонки users: {column_names}")
+            
+            # Проверяем наличие нужных колонок
+            required_columns = ['likes_given', 'likes_received', 'matches', 
+                               'likes_given_count', 'likes_received_count', 'matches_count']
+            missing = [col for col in required_columns if col not in column_names]
+            if missing:
+                print(f"⚠️ Отсутствуют колонки: {missing}")
+        
+        print("✅ База данных инициализирована")
         return True
     except Exception as e:
         print(f"❌ Ошибка инициализации БД: {e}")
-        
-        # Пробуем создать таблицу напрямую
-        try:
-            from sqlalchemy import text
-            
-            create_table_sql = """
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                telegram_id BIGINT UNIQUE NOT NULL,
-                username VARCHAR(255),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                name VARCHAR(255),
-                age INTEGER,
-                region VARCHAR(100),
-                platform VARCHAR(100),
-                favorite_games TEXT,  -- JSON как TEXT
-                about TEXT,
-                photos TEXT,  -- JSON как TEXT
-                is_active BOOLEAN DEFAULT TRUE,
-                search_by_interests BOOLEAN DEFAULT FALSE,
-                likes_given TEXT DEFAULT '[]',  -- JSON как TEXT
-                likes_received TEXT DEFAULT '[]',  -- JSON как TEXT
-                matches TEXT DEFAULT '[]',  -- JSON как TEXT
-                likes_given_count INTEGER DEFAULT 0,
-                likes_received_count INTEGER DEFAULT 0,
-                matches_count INTEGER DEFAULT 0
-            )
-            """
-            
-            with engine.connect() as conn:
-                conn.execute(text(create_table_sql))
-                conn.commit()
-            
-            print("✅ Таблица users создана напрямую")
-            return True
-        except Exception as e2:
-            print(f"❌ Ошибка прямого создания таблицы: {e2}")
-            return False
+        return False
