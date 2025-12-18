@@ -8,14 +8,50 @@ from sqlalchemy.orm.attributes import flag_modified
 import random
 from datetime import datetime, timedelta
 from collections import Counter
+import os
+
+# ========== ВАЖНОЕ ИСПРАВЛЕНИЕ ==========
+# Добавляем очистку кэша в get_db_session
+def get_db_session():
+    """Создает новую сессию БД с очисткой кэша"""
+    try:
+        from database.db import SessionLocal
+        
+        # Создаем новую сессию
+        db = SessionLocal()
+        
+        # ВАЖНО: Очищаем кэш перед каждым использованием!
+        db.expire_all()
+        
+        return db
+    except Exception as e:
+        print(f"❌ Ошибка подключения к БД: {e}")
+        
+        # Пробуем переподключиться
+        try:
+            from database.db import engine
+            from sqlalchemy import text
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            
+            db = SessionLocal()
+            db.expire_all()  # Очищаем кэш
+            return db
+        except:
+            return None
+
+# ========== ИНИЦИАЛИЗАЦИЯ БОТА ==========
+state_storage = StateMemoryStorage()
+bot = telebot.TeleBot(Config.BOT_TOKEN, state_storage=state_storage)
 
 # Инициализация БД
 try:
+    print("🔄 Инициализация базы данных...")
     from database.db import init_db
     init_db()
     print("✅ База данных инициализирована")
 except Exception as e:
-    print(f"⚠️ Ошибка инициализации БД (возможно уже созданы): {e}")
+    print(f"⚠️ Ошибка инициализации БД: {e}")
 
 # ========== ФУНКЦИИ ОФОРМЛЕНИЯ ==========
 
@@ -104,11 +140,7 @@ def edit_formatted_message(chat_id, message_id, text, reply_markup=None, parse_m
             pass
         return send_formatted_message(chat_id, text, reply_markup, parse_mode)
 
-state_storage = StateMemoryStorage()
-bot = telebot.TeleBot(Config.BOT_TOKEN, state_storage=state_storage)
-
-init_db()
-
+# ========== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ==========
 profile_data = {}
 editing_state = {}
 admin_sessions = {}
@@ -132,22 +164,6 @@ def get_main_keyboard():
     for i in range(0, len(buttons), 2):
         markup.add(*buttons[i:i+2])
     return markup
-
-def get_db_session():
-    try:
-        db = SessionLocal()
-        return db
-    except Exception as e:
-        print(f"Ошибка подключения к БД: {e}")
-        try:
-            from database.db import engine
-            from sqlalchemy import text
-            with engine.connect() as conn:
-                conn.execute(text("SELECT 1"))
-            db = SessionLocal()
-            return db
-        except:
-            return None
 
 def check_subscription_sync(user_id):
     try:
@@ -185,6 +201,8 @@ def show_subscription_required(chat_id, user_id):
     
     bot.send_message(chat_id, subscription_text, reply_markup=markup)
 
+# ========== КОМАНДЫ БОТА ==========
+
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     user_id = message.from_user.id
@@ -193,7 +211,6 @@ def send_welcome(message):
         show_subscription_required(message.chat.id, user_id)
         return
     
-    # УБЕРИТЕ "🎮 Добро пожаловать в GamerMatch!" из текста
     welcome_text = """✨ *Основные функции:*
 📝 Моя анкета - Создать/редактировать анкету
 🔍 Искать игроков - Поиск по анкетам
@@ -212,7 +229,6 @@ def send_welcome(message):
 📷 Чтобы добавить фото - просто отправьте его боту"""
     
     send_formatted_message(message.chat.id, welcome_text, reply_markup=get_main_keyboard())
-    
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('check_sub_'))
 def check_subscription_callback(call):
@@ -249,34 +265,7 @@ def check_subscription_callback(call):
     else:
         bot.answer_callback_query(call.id, "❌ Вы еще не подписаны! Подпишитесь и попробуйте снова.")
 
-@bot.message_handler(func=lambda message: message.text == "❓ Помощь")
-def send_help(message):
-    user_id = message.from_user.id
-    
-    if not check_subscription_sync(user_id):
-        show_subscription_required(message.chat.id, user_id)
-        return
-    
-    help_text = """🎮 *GamerMatch - бот для знакомств геймеров*
-
-📋 *Основные функции:*
-📝 Моя анкета - Создать/редактировать анкету
-🔍 Искать игроков - Поиск по анкетам
-❤️ Мои лайки - Кто вас лайкнул
-💌 Мэтчи - Ваши взаимные лайки
-⚙️ Настройки - Настройки поиска
-
-📌 *Как работает:*
-1. Создайте анкету с играми и интересами
-2. Ищите людей через поиск
-3. Ставьте лайки понравившимся
-4. При взаимном лайке получаете контакт!
-
-💬 Можно искать не только для игр, но и просто для общения!
-
-📷 Чтобы добавить фото - просто отправьте его боту"""
-    
-    send_formatted_message(message.chat.id, help_text, reply_markup=get_main_keyboard())
+# ========== АНКЕТА ==========
 
 @bot.message_handler(commands=['profile'])
 @bot.message_handler(func=lambda message: message.text == "📝 Моя анкета")
@@ -294,6 +283,9 @@ def my_profile(message):
         return
     
     try:
+        # ОЧИЩАЕМ КЭШ перед поиском
+        db.expire_all()
+        
         user = db.query(User).filter(User.telegram_id == user_id).first()
         
         if not user:
@@ -315,8 +307,8 @@ def my_profile(message):
         if user.about:
             profile_text += f"\n\n📝 О себе:\n{user.about[:200]}"
         
-        profile_text += f"\n\n❤️ Лайков получено: {len(user.likes_received) if user.likes_received else 0}"
-        profile_text += f"\n💌 Мэтчей: {len(user.matches) if user.matches else 0}"
+        profile_text += f"\n\n❤️ Лайков получено: {user.likes_received_count}"
+        profile_text += f"\n💌 Мэтчей: {user.matches_count}"
         profile_text += f"\n📸 Фото: {len(user.photos) if user.photos else 0}"
         
         markup = types.InlineKeyboardMarkup(row_width=2)
@@ -589,6 +581,8 @@ def handle_game_selection(call):
     except:
         bot.answer_callback_query(call.id, "Ошибка")
 
+# ========== ИСПРАВЛЕННАЯ ФУНКЦИЯ СОХРАНЕНИЯ АНКЕТЫ ==========
+
 @bot.callback_query_handler(func=lambda call: call.data.startswith('games_done_') and not call.data.endswith('_edit'))
 @require_subscription_callback
 def finish_profile(call):
@@ -601,18 +595,21 @@ def finish_profile(call):
         
         data = profile_data[user_id]
         
-        if not data.get('games'):
-            bot.answer_callback_query(call.id, "Выберите хотя бы один интерес!")
-            return
-        
         db = get_db_session()
         if not db:
             bot.answer_callback_query(call.id, "Ошибка БД")
             return
         
         try:
+            # ОЧИЩАЕМ КЭШ перед поиском!
+            db.expire_all()
+            
+            print(f"🔍 Ищем пользователя с telegram_id={user_id}")
             existing_user = db.query(User).filter(User.telegram_id == user_id).first()
+            
             if existing_user:
+                print(f"✅ Нашел существующего пользователя: ID={existing_user.id}")
+                # Обновляем существующего
                 existing_user.name = data['name']
                 existing_user.username = data.get('username')
                 existing_user.age = data.get('age')
@@ -621,7 +618,19 @@ def finish_profile(call):
                 existing_user.favorite_games = data['games']
                 existing_user.about = data.get('about', '')
                 existing_user.is_active = True
+                
+                # Обновляем счетчики если их нет
+                if not hasattr(existing_user, 'likes_given_count') or existing_user.likes_given_count is None:
+                    existing_user.likes_given_count = 0
+                if not hasattr(existing_user, 'likes_received_count') or existing_user.likes_received_count is None:
+                    existing_user.likes_received_count = 0
+                if not hasattr(existing_user, 'matches_count') or existing_user.matches_count is None:
+                    existing_user.matches_count = 0
+                
+                print(f"📝 Обновляю существующего пользователя: {existing_user.id}")
             else:
+                print(f"➕ Создаю нового пользователя: telegram_id={user_id}")
+                # Создаем нового
                 user = User(
                     telegram_id=data['telegram_id'],
                     username=data.get('username'),
@@ -633,11 +642,30 @@ def finish_profile(call):
                     about=data.get('about', ''),
                     is_active=True,
                     photos=[],
-                    search_by_interests=True
+                    search_by_interests=True,
+                    likes_given=[],    # Пустой JSON список
+                    likes_received=[], # Пустой JSON список
+                    matches=[],        # Пустой JSON список
+                    likes_given_count=0,
+                    likes_received_count=0,
+                    matches_count=0
                 )
                 db.add(user)
+                print(f"✅ Создал нового пользователя")
             
+            print("💾 Сохраняю изменения...")
             db.commit()
+            
+            # Сбрасываем кэш после коммита
+            db.expire_all()
+            
+            # ПРОВЕРКА: ищем сразу после создания
+            print(f"🔍 Проверяю сохранение пользователя {user_id}...")
+            check_user = db.query(User).filter(User.telegram_id == user_id).first()
+            if check_user:
+                print(f"✅ Проверка: пользователь найден после сохранения, ID={check_user.id}, имя={check_user.name}")
+            else:
+                print(f"❌ Проверка: пользователь НЕ найден после сохранения!")
             
             if user_id in profile_data:
                 del profile_data[user_id]
@@ -665,15 +693,18 @@ def finish_profile(call):
             bot.send_message(call.message.chat.id, "📸 Вы можете добавить фото, просто отправьте его боту")
             
         except Exception as e:
-            print(f"Ошибка: {e}")
-            bot.answer_callback_query(call.id, "Ошибка сохранения")
+            print(f"❌ Ошибка сохранения анкеты: {e}")
+            bot.answer_callback_query(call.id, f"Ошибка сохранения: {str(e)[:100]}")
+            db.rollback()
         finally:
             db.close()
             
-    except:
+    except Exception as e:
+        print(f"❌ Ошибка обработки: {e}")
         bot.answer_callback_query(call.id, "Ошибка обработки")
 
-# ВАЖНО: ИСПРАВЛЕННЫЙ КОД НИЖЕ
+# ========== ОСТАЛЬНЫЕ ФУНКЦИИ АНКЕТЫ ==========
+
 @bot.callback_query_handler(func=lambda call: call.data == 'edit_profile_menu')
 @require_subscription_callback
 def edit_profile_menu(call):
@@ -928,6 +959,8 @@ def finish_edit_games(call):
     except:
         bot.answer_callback_query(call.id, "Ошибка обработки")
 
+# ========== ФОТО ==========
+
 @bot.message_handler(content_types=['photo'])
 def handle_photo(message):
     user_id = message.from_user.id
@@ -1135,7 +1168,6 @@ def delete_all_photos(call):
     finally:
         db.close()
 
-# ВАЖНО: ИСПРАВЛЕННЫЙ КОД НИЖЕ
 @bot.callback_query_handler(func=lambda call: call.data == 'back_to_profile')
 @require_subscription_callback
 def back_to_profile(call):
@@ -1167,8 +1199,8 @@ def back_to_profile(call):
             about_text = user.about[:200]
             profile_text += f"\n\n📝 О себе:\n{about_text}"
         
-        profile_text += f"\n\n❤️ Лайков получено: {len(user.likes_received) if user.likes_received else 0}"
-        profile_text += f"\n💌 Мэтчей: {len(user.matches) if user.matches else 0}"
+        profile_text += f"\n\n❤️ Лайков получено: {user.likes_received_count}"
+        profile_text += f"\n💌 Мэтчей: {user.matches_count}"
         profile_text += f"\n📸 Фото: {len(user.photos) if user.photos else 0}"
         
         markup = types.InlineKeyboardMarkup(row_width=2)
@@ -1200,6 +1232,8 @@ def back_to_profile(call):
         bot.answer_callback_query(call.id, "Ошибка")
     finally:
         db.close()
+
+# ========== ПОИСК И ЛАЙКИ ==========
 
 @bot.message_handler(commands=['search'])
 @bot.message_handler(func=lambda message: message.text == "🔍 Искать игроков")
@@ -1326,19 +1360,26 @@ def handle_like(call):
                 bot.answer_callback_query(call.id, "Ошибка!")
                 return
             
+            # Инициализируем списки если их нет
             if user.likes_given is None:
                 user.likes_given = []
             if target_user.likes_received is None:
                 target_user.likes_received = []
             
+            # Добавляем лайк
             if target_id not in user.likes_given:
                 user.likes_given.append(target_id)
+                user.likes_given_count = len(user.likes_given)
                 flag_modified(user, "likes_given")
+                flag_modified(user, "likes_given_count")
             
             if user_id not in target_user.likes_received:
                 target_user.likes_received.append(user_id)
+                target_user.likes_received_count = len(target_user.likes_received)
                 flag_modified(target_user, "likes_received")
+                flag_modified(target_user, "likes_received_count")
             
+            # Инициализируем списки мэтчей
             if user.matches is None:
                 user.matches = []
             if target_user.matches is None:
@@ -1346,14 +1387,19 @@ def handle_like(call):
             
             target_likes_given = target_user.likes_given or []
             
+            # Проверяем взаимный лайк
             if user_id in target_likes_given:
                 if target_id not in user.matches:
                     user.matches.append(target_id)
+                    user.matches_count = len(user.matches)
                     flag_modified(user, "matches")
+                    flag_modified(user, "matches_count")
                 
                 if user_id not in target_user.matches:
                     target_user.matches.append(user_id)
+                    target_user.matches_count = len(target_user.matches)
                     flag_modified(target_user, "matches")
+                    flag_modified(target_user, "matches_count")
                 
                 db.commit()
                 bot.answer_callback_query(call.id, "🎉 Мэтч! Вы понравились друг другу!")
@@ -1443,6 +1489,8 @@ def handle_skip(call):
     except Exception as e:
         print(f"Ошибка обработки skip: {e}")
         bot.send_message(call.message.chat.id, "Ошибка обработки", reply_markup=get_main_keyboard())
+
+# ========== МОИ ЛАЙКИ И МЭТЧИ ==========
 
 @bot.message_handler(commands=['likes'])
 @bot.message_handler(func=lambda message: message.text == "❤️ Мои лайки")
@@ -1599,6 +1647,8 @@ def show_matches(message):
     finally:
         db.close()
 
+# ========== НАСТРОЙКИ ==========
+
 @bot.message_handler(commands=['settings'])
 @bot.message_handler(func=lambda message: message.text == "⚙️ Настройки")
 @bot.callback_query_handler(func=lambda call: call.data == 'search_settings')
@@ -1727,6 +1777,8 @@ def toggle_settings(call):
     finally:
         db.close()
 
+# ========== УДАЛЕНИЕ АНКЕТЫ ==========
+
 @bot.callback_query_handler(func=lambda call: call.data == 'delete_profile')
 @require_subscription_callback
 def delete_profile(call):
@@ -1784,6 +1836,8 @@ def confirm_delete(call):
     finally:
         db.close()
 
+# ========== ДИАГНОСТИЧЕСКИЕ КОМАНДЫ ==========
+
 @bot.message_handler(commands=['debug'])
 def debug_user(message):
     """Показывает информацию о текущем пользователе"""
@@ -1792,36 +1846,35 @@ def debug_user(message):
     try:
         db = get_db_session()
         if db:
-            from database.models import User, Profile
+            from database.models import User
             
-            # 1. Ищем в таблице users
+            # Очищаем кэш перед поиском
+            db.expire_all()
+            
+            # 1. Ищем в таблице users через SQLAlchemy
             user = db.query(User).filter(User.telegram_id == user_id).first()
             
             response = "🔍 Отладка пользователя:\n\n"
             
             if user:
-                response += f"✅ Найден в таблице 'users':\n"
-                response += f"   ID: {user.id}\n"
+                response += f"✅ Найден в таблице 'users' через SQLAlchemy:\n"
+                response += f"   ID в БД: {user.id}\n"
+                response += f"   Telegram ID: {user.telegram_id}\n"
                 response += f"   Имя: {user.name or 'Нет'}\n"
                 response += f"   Возраст: {user.age or 'Нет'}\n"
                 response += f"   Игр выбрано: {len(user.favorite_games) if user.favorite_games else 0}\n"
                 response += f"   Активен: {user.is_active}\n"
-                
-                # Проверяем связанный профиль
-                if hasattr(user, 'profile') and user.profile:
-                    response += f"✅ Есть профиль в 'profiles':\n"
-                    response += f"   Игра: {user.profile.game or 'Нет'}\n"
-                else:
-                    response += f"❌ Нет профиля в таблице 'profiles'\n"
+                response += f"   Лайков отправлено: {user.likes_given_count}\n"
+                response += f"   Лайков получено: {user.likes_received_count}\n"
             else:
-                response += f"❌ Не найден в таблице 'users'\n"
+                response += f"❌ Не найден в таблице 'users' через SQLAlchemy\n"
             
             # 2. Проверяем напрямую через SQL
             from sqlalchemy import text
-            result = db.execute(text("SELECT telegram_id, name FROM users WHERE telegram_id = :id"), 
+            result = db.execute(text("SELECT id, telegram_id, name FROM users WHERE telegram_id = :id"), 
                               {'id': user_id}).fetchone()
             if result:
-                response += f"\n📊 SQL запрос подтверждает: есть запись с telegram_id={result[0]}, имя='{result[1]}'"
+                response += f"\n📊 SQL запрос подтверждает: есть запись с id={result[0]}, telegram_id={result[1]}, имя='{result[2]}'"
             else:
                 response += f"\n📊 SQL запрос: записи с telegram_id={user_id} нет"
             
@@ -1830,15 +1883,79 @@ def debug_user(message):
         else:
             bot.reply_to(message, "❌ Нет подключения к БД")
     except Exception as e:
-        bot.reply_to(message, f"❌ Ошибка: {str(e)}")
+        bot.reply_to(message, f"❌ Ошибка: {str(e)[:200]}")
 
-# Добавь где-то в handlers (например, рядом с /debug)
+@bot.message_handler(commands=['checkdb'])
+def check_db_status(message):
+    """Проверка состояния БД и кэша"""
+    user_id = message.from_user.id
+    
+    try:
+        from database.db import engine, SessionLocal
+        from sqlalchemy import text, inspect
+        
+        response = "🔍 Проверка БД:\n\n"
+        
+        # 1. Подключение к БД
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            response += "✅ Подключение к БД: ОК\n"
+        except Exception as e:
+            response += f"❌ Подключение к БД: {str(e)[:100]}\n"
+        
+        # 2. Проверка таблиц
+        try:
+            inspector = inspect(engine)
+            tables = inspector.get_table_names()
+            response += f"✅ Таблицы: {len(tables)} шт.\n"
+            if 'users' in tables:
+                # Проверка записей
+                with engine.connect() as conn:
+                    result = conn.execute(text("SELECT COUNT(*) FROM users WHERE telegram_id = :id"), 
+                                        {'id': user_id}).fetchone()
+                    if result and result[0] > 0:
+                        response += f"✅ Ваш telegram_id {user_id} найден в БД\n"
+                        
+                        # Полная информация
+                        user_data = conn.execute(text("SELECT * FROM users WHERE telegram_id = :id"), 
+                                               {'id': user_id}).fetchone()
+                        if user_data:
+                            response += f"   ID в БД: {user_data[0]}\n"
+                            response += f"   Имя: {user_data[4]}\n"
+                    else:
+                        response += f"❌ Ваш telegram_id {user_id} НЕ найден в БД\n"
+            else:
+                response += "❌ Таблица 'users' не существует!\n"
+        except Exception as e:
+            response += f"❌ Проверка таблиц: {str(e)[:100]}\n"
+        
+        # 3. Проверка через SQLAlchemy
+        try:
+            db = SessionLocal()
+            db.expire_all()  # Очищаем кэш
+            
+            user = db.query(User).filter(User.telegram_id == user_id).first()
+            if user:
+                response += f"✅ SQLAlchemy находит пользователя: ID={user.id}, имя={user.name}\n"
+            else:
+                response += f"❌ SQLAlchemy НЕ находит пользователя\n"
+            
+            db.close()
+        except Exception as e:
+            response += f"❌ SQLAlchemy: {str(e)[:100]}\n"
+        
+        bot.reply_to(message, response)
+        
+    except Exception as e:
+        bot.reply_to(message, f"❌ Ошибка проверки БД: {str(e)[:200]}")
+
 @bot.message_handler(commands=['resetdb'])
 def reset_db_command(message):
     """Сброс БД (только для админа)"""
     user_id = message.from_user.id
     
-    # Проверяем админа (можно добавить список админских ID)
+    # Проверяем админа
     ADMIN_IDS = [568851472]  # Твой ID
     
     if user_id not in ADMIN_IDS:
@@ -1883,7 +2000,8 @@ def show_tables(message):
     except Exception as e:
         bot.reply_to(message, f"❌ Ошибка: {str(e)}")
 
-# АДМИН-ПАНЕЛЬ
+# ========== АДМИН-ПАНЕЛЬ ==========
+
 @bot.message_handler(commands=['admin'])
 def admin_command(message):
     user_id = message.from_user.id
@@ -1933,11 +2051,6 @@ def show_admin_menu(chat_id):
         "🛠️ *Админ-панель*\n\nВыберите действие:",
         reply_markup=markup
     )
-    
-    bot.send_message(chat_id, 
-                    "🛠️ *Админ-панель*\nВыберите действие:",
-                    parse_mode='Markdown',
-                    reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('admin_'))
 def handle_admin_callback(call):
@@ -1999,11 +2112,8 @@ def get_db_stats():
         
         all_users = db.query(User).all()
         for user in all_users:
-            if user.likes_given:
-                total_likes += len(user.likes_given)
-            
-            if user.matches:
-                total_matches += len(user.matches)
+            total_likes += user.likes_given_count
+            total_matches += user.matches_count
         
         from collections import Counter
         game_counter = Counter()
@@ -2019,7 +2129,7 @@ def get_db_stats():
             'total_users': total_users,
             'active_profiles': active_profiles,
             'total_likes': total_likes,
-            'total_matches': total_matches // 2,
+            'total_matches': total_matches // 2,  # Делим на 2 так как каждый мэтч считается дважды
             'top_games': top_games
         }
         
@@ -2166,9 +2276,9 @@ def show_admin_profile(call, profile_id):
 📝 *О себе:*
 {profile.about or 'Не указано'}
 
-❤️ *Лайков отправлено:* {len(profile.likes_given) if profile.likes_given else 0}
-💌 *Лайков получено:* {len(profile.likes_received) if profile.likes_received else 0}
-🤝 *Мэтчей:* {len(profile.matches) if profile.matches else 0}
+❤️ *Лайков отправлено:* {profile.likes_given_count}
+💌 *Лайков получено:* {profile.likes_received_count}
+🤝 *Мэтчей:* {profile.matches_count}
 📸 *Фото:* {len(profile.photos) if profile.photos else 0}"""
         
         markup = types.InlineKeyboardMarkup(row_width=2)
@@ -2312,11 +2422,8 @@ def get_live_stats_data():
         total_matches_week = 0
         
         for user in all_users:
-            if user.likes_given:
-                total_likes_week += len(user.likes_given)
-            
-            if user.matches:
-                total_matches_week += len(user.matches)
+            total_likes_week += user.likes_given_count
+            total_matches_week += user.matches_count
         
         conversion_rate = 0
         if total_likes_week > 0:
@@ -2380,6 +2487,37 @@ def admin_logout(call):
     bot.delete_message(call.message.chat.id, call.message.message_id)
     bot.send_message(call.message.chat.id, "Админ-сессия завершена.", reply_markup=get_main_keyboard())
 
+# ========== ОБРАБОТКА ДРУГИХ СООБЩЕНИЙ ==========
+
+@bot.message_handler(func=lambda message: message.text == "❓ Помощь")
+def send_help(message):
+    user_id = message.from_user.id
+    
+    if not check_subscription_sync(user_id):
+        show_subscription_required(message.chat.id, user_id)
+        return
+    
+    help_text = """🎮 *GamerMatch - бот для знакомств геймеров*
+
+📋 *Основные функции:*
+📝 Моя анкета - Создать/редактировать анкету
+🔍 Искать игроков - Поиск по анкетам
+❤️ Мои лайки - Кто вас лайкнул
+💌 Мэтчи - Ваши взаимные лайки
+⚙️ Настройки - Настройки поиска
+
+📌 *Как работает:*
+1. Создайте анкету с играми и интересами
+2. Ищите людей через поиск
+3. Ставьте лайки понравившимся
+4. При взаимном лайке получаете контакт!
+
+💬 Можно искать не только для игр, но и просто для общения!
+
+📷 Чтобы добавить фото - просто отправьте его боту"""
+    
+    send_formatted_message(message.chat.id, help_text, reply_markup=get_main_keyboard())
+
 @bot.message_handler(func=lambda message: True)
 def handle_other_messages(message):
     if message.text.lower() in ["привет", "hi", "hello"]:
@@ -2387,23 +2525,12 @@ def handle_other_messages(message):
     else:
         bot.send_message(message.chat.id, "Используй кнопки для навигации! 🎮", reply_markup=get_main_keyboard())
 
-if __name__ == '__main__':
-    print("🎮 Бот GamerMatch запущен!")
-    print(f"📢 Проверка подписки на канал: {CHANNEL_ID}")
-    try:
-        bot.infinity_polling()
-    except Exception as e:
-        print(f"Критическая ошибка: {e}")
-        import time
-        time.sleep(5)
-        print("Перезапуск бота...")
-        bot.infinity_polling()
+# ========== ЗАПУСК БОТА ==========
 
-        # В самом конце main.py, перед запуском бота
 if __name__ == "__main__":
     print("🎮 Бот GamerMatch запущен на Railway!")
+    print(f"📢 Проверка подписки на канал: {CHANNEL_ID}")
     
-    # === ДОБАВЬ ЭТОТ КОД ===
     # Проверяем и создаем таблицы если нужно
     try:
         from database.db import engine, init_db
@@ -2429,7 +2556,6 @@ if __name__ == "__main__":
             
     except Exception as e:
         print(f"⚠️ Предупреждение при проверке БД: {e}")
-    # === КОНЕЦ ДОБАВЛЕННОГО КОДА ===
     
     # Решаем проблему 409: используем skip_pending и настраиваем polling
     try:

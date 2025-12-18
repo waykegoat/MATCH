@@ -10,8 +10,7 @@ class User(Base):
     __tablename__ = 'users'
     
     id = Column(Integer, primary_key=True)
-    # ИЗМЕНЕНИЕ: Integer -> BigInteger
-    telegram_id = Column(BigInteger, unique=True, nullable=False)  # ← ВОТ ЭТО!
+    telegram_id = Column(BigInteger, unique=True, nullable=False)  # BigInteger вместо Integer
     username = Column(String(100))
     created_at = Column(DateTime, default=datetime.utcnow)
     
@@ -26,9 +25,15 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     search_by_interests = Column(Boolean, default=True)
     
-    likes_given = Column(Integer, default=0)
-    likes_received = Column(Integer, default=0)
-    matches = Column(Integer, default=0)
+    # ИЗМЕНЕНИЕ: Integer для счетчиков, JSON для списков
+    likes_given_count = Column(Integer, default=0)
+    likes_received_count = Column(Integer, default=0)
+    matches_count = Column(Integer, default=0)
+    
+    # JSON списки для хранения ID
+    likes_given = Column(JSON, default=list)  # Список telegram_id кому лайкнул
+    likes_received = Column(JSON, default=list)  # Список telegram_id от кого лайки
+    matches = Column(JSON, default=list)  # Список telegram_id мэтчей
     
     # Связи
     profile = relationship("Profile", back_populates="user", uselist=False)
