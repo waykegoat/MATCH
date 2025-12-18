@@ -2566,21 +2566,18 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"⚠️ Не удалось удалить вебхук (может и не быть): {e}")
     
-    # 2. Запускаем polling с ОТЛОВОМ ПОЛНОЙ ОШИБКИ
+    # 2. Запускаем polling БЕЗ logger_level
     try:
         print("🔄 Запускаем бота...")
+        # УБРАЛ logger_level!
         bot.infinity_polling(
-            skip_pending=True,
+            skip_pending=True,      # Пропускаем старые сообщения
             timeout=30,
-            long_polling_timeout=5,
-            logger_level="INFO"
+            long_polling_timeout=5
+            # logger_level="INFO"   ← УДАЛИ ЭТУ СТРОКУ!
         )
     except Exception as e:
-        # ПОЛНЫЙ TRACEBACK!
-        print("="*60)
-        print("🔥 ПОЛНЫЙ TRACEBACK ОШИБКИ:")
-        print("="*60)
-        traceback.print_exc()
-        print("="*60)
         print(f"❌ Критическая ошибка бота: {e}")
+        import traceback
+        traceback.print_exc()
         print("🛑 Бот остановлен.")
