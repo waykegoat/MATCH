@@ -1274,7 +1274,7 @@ def search_profiles(message):
             filtered_users = []
             for other_user in other_users:
                 if other_user.favorite_games:
-                    common_interests = set(user.favorite_games) & set(other_user.favorite_games)
+                    common_interests = set(user.favorite_games or []) & set(other_user.favorite_games or [])
                     if common_interests:
                         filtered_users.append(other_user)
             
