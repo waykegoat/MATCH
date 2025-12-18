@@ -38,35 +38,111 @@ def global_exception_handler(exc_type, exc_value, exc_traceback):
 # Устанавливаем глобальный обработчик
 sys.excepthook = global_exception_handler
 
-# ========== ВАЖНОЕ ИСПРАВЛЕНИЕ ==========
-# Добавляем очистку кэша в get_db_session
+# ========== ИСПРАВЛЕННАЯ ФУНКЦИЯ ПОЛУЧЕНИЯ СЕССИИ БД ==========
 def get_db_session():
-    """Создает новую сессию БД с очисткой кэша"""
+    """Создает новую сессию БД"""
     try:
         from database.db import SessionLocal
-        
-        # Создаем новую сессию
         db = SessionLocal()
-        
-        # ВАЖНО: Очищаем кэш перед каждым использованием!
-        db.expire_all()
-        
         return db
     except Exception as e:
         print(f"❌ Ошибка подключения к БД: {e}")
+        return None
+
+# ========== ИСПРАВЛЕННАЯ ФУНКЦИЯ СОХРАНЕНИЯ АНКЕТЫ ==========
+@bot.callback_query_handler(func=lambda call: call.data.startswith('games_done_') and not call.data.endswith('_edit'))
+@require_subscription_callback
+def finish_profile(call):
+    try:
+        user_id = int(call.data.split('_')[2])
         
-        # Пробуем переподключиться
+        if user_id not in profile_data:
+            bot.answer_callback_query(call.id, "Ошибка! Данные не найдены")
+            return
+        
+        data = profile_data[user_id]
+        
+        db = get_db_session()
+        if not db:
+            bot.answer_callback_query(call.id, "Ошибка подключения к БД")
+            return
+        
         try:
-            from database.db import engine
-            from sqlalchemy import text
-            with engine.connect() as conn:
-                conn.execute(text("SELECT 1"))
+            # Проверяем, существует ли пользователь
+            existing_user = db.query(User).filter(User.telegram_id == user_id).first()
             
-            db = SessionLocal()
-            db.expire_all()  # Очищаем кэш
-            return db
-        except:
-            return None
+            if existing_user:
+                # Обновляем существующего
+                existing_user.name = data['name']
+                existing_user.username = data.get('username')
+                existing_user.age = data.get('age')
+                existing_user.region = data['region']
+                existing_user.platform = data['platform']
+                existing_user.favorite_games = data['games']
+                existing_user.about = data.get('about', '')
+                existing_user.is_active = True
+            else:
+                # Создаем нового
+                new_user = User(
+                    telegram_id=data['telegram_id'],
+                    username=data.get('username'),
+                    name=data['name'],
+                    age=data.get('age'),
+                    region=data['region'],
+                    platform=data['platform'],
+                    favorite_games=data['games'],
+                    about=data.get('about', ''),
+                    is_active=True,
+                    photos=[],
+                    search_by_interests=True,
+                    likes_given_count=0,
+                    likes_received_count=0,
+                    matches_count=0,
+                    likes_given=[],
+                    likes_received=[],
+                    matches=[]
+                )
+                db.add(new_user)
+            
+            db.commit()
+            
+            # Очищаем временные данные
+            if user_id in profile_data:
+                del profile_data[user_id]
+            
+            # Показываем успешное сообщение
+            games_text = ', '.join(data['games'][:8])
+            if len(data['games']) > 8:
+                games_text += f"... (+{len(data['games']) - 8})"
+            
+            success_text = f"""✅ Анкета создана!
+
+👤 Имя: {data['name']}
+🌍 Регион: {data['region']}
+🎮 Платформа: {data['platform']}
+🎲 Интересы: {games_text}"""
+            
+            if data.get('age'):
+                success_text += f"\n🎂 Возраст: {data['age']}"
+            
+            if data.get('about'):
+                about_text = data['about'][:200]
+                success_text += f"\n\n📝 О себе:\n{about_text}..."
+            
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+            bot.send_message(call.message.chat.id, success_text, reply_markup=get_main_keyboard())
+            bot.send_message(call.message.chat.id, "📸 Вы можете добавить фото, просто отправьте его боту")
+            
+        except Exception as e:
+            print(f"❌ Ошибка сохранения анкеты: {e}")
+            bot.answer_callback_query(call.id, f"Ошибка: {str(e)[:50]}")
+            db.rollback()
+        finally:
+            db.close()
+            
+    except Exception as e:
+        print(f"❌ Ошибка обработки: {e}")
+        bot.answer_callback_query(call.id, "Ошибка обработки")
 
 # ========== ИНИЦИАЛИЗАЦИЯ БОТА ==========
 state_storage = StateMemoryStorage()
@@ -2558,19 +2634,50 @@ if __name__ == "__main__":
     print("🎮 Бот GamerMatch запущен на Railway!")
     print(f"📢 Проверка подписки на канал: {CHANNEL_ID}")
     
-    # 1. Явно удаляем возможный старый вебхук 
-    try:
+    import os
+    from flask import Flask, request
+    
+    WEBHOOK_URL = os.getenv('WEBHOOK_URL', '')
+    
+    if WEBHOOK_URL and 'railway' in WEBHOOK_URL:
+        # РЕЖИМ ВЕБХУКОВ (идеально для Railway)
+        app = Flask(__name__)
+        
+        @app.route('/webhook', methods=['POST'])
+        def webhook():
+            if request.headers.get('content-type') == 'application/json':
+                json_string = request.get_data().decode('utf-8')
+                update = telebot.types.Update.de_json(json_string)
+                bot.process_new_updates([update])
+                return ''
+            return 'Bad request', 400
+        
+        @app.route('/health', methods=['GET'])
+        def health():
+            return 'OK', 200
+        
+        # Устанавливаем вебхук
         bot.remove_webhook()
         time.sleep(1)
-        print("✅ Старый вебхук удален")
-    except Exception as e:
-        print(f"⚠️ Не удалось удалить вебхук (может и не быть): {e}")
-    
-    # 2. Запускаем polling БЕЗ logger_level
-    try:
-        print("🔄 Запускаем бота...")
-        # САМАЯ ПРОСТАЯ ВЕРСИЯ:
-        bot.infinity_polling(skip_pending=True, timeout=30)
-    except Exception as e:
-        print(f"❌ Критическая ошибка бота: {e}")
-        print("🛑 Бот остановлен.")
+        bot.set_webhook(url=WEBHOOK_URL + '/webhook')
+        print(f"✅ Вебхук установлен: {WEBHOOK_URL}/webhook")
+        
+        # Запускаем Flask
+        port = int(os.getenv('PORT', 5000))
+        app.run(host='0.0.0.0', port=port)
+        
+    else:
+        # РЕЖИМ POLLING (если нет WEBHOOK_URL)
+        try:
+            bot.remove_webhook()
+            time.sleep(1)
+            print("✅ Вебхук удален, используем polling")
+            
+            bot.infinity_polling(
+                skip_pending=True,
+                timeout=30,
+                long_polling_timeout=5
+            )
+        except Exception as e:
+            print(f"❌ Ошибка: {e}")
+            print("🛑 Бот остановлен.")

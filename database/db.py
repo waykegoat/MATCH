@@ -1,6 +1,5 @@
-# database/db.py
 import os
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, inspect
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
@@ -14,7 +13,7 @@ if not database_url:
 elif database_url.startswith('postgres://'):
     database_url = database_url.replace('postgres://', 'postgresql://', 1)
 
-print(f"📦 Подключаемся к БД: {'***' + database_url.split('@')[1] if '@' in database_url else database_url}")
+print(f"📦 Подключаемся к БД: {database_url.split('@')[-1] if '@' in database_url else database_url}")
 
 # Разные настройки для PostgreSQL и SQLite
 if 'postgresql' in database_url:
@@ -35,7 +34,6 @@ else:
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# ДОБАВЬ ЭТУ ФУНКЦИЮ:
 def get_db():
     """Генератор сессий для зависимостей"""
     db = SessionLocal()
@@ -47,15 +45,13 @@ def get_db():
 def init_db():
     """Создает таблицы в БД с правильной структурой"""
     try:
-        # ВАЖНО: импорт моделей ДО создания таблиц
-        from database.models import User, Profile, Like, Message, Notification
-        
         print("🔄 Создаем таблицы в БД...")
         
-        # Для SQLite: удаляем старые таблицы если есть
-        if 'sqlite' in str(engine.url):
-            print("🗑️ Очищаем старые таблицы для SQLite...")
-            Base.metadata.drop_all(bind=engine)
+        # ВАЖНО: импорт моделей ДО создания таблич
+        from database.models import User
+        
+        # Удаляем старые таблицы (только для разработки)
+        Base.metadata.drop_all(bind=engine)
         
         # Создаем таблицы с новой структурой
         Base.metadata.create_all(bind=engine)
@@ -63,6 +59,7 @@ def init_db():
         # Проверяем структуру
         inspector = inspect(engine)
         tables = inspector.get_table_names()
+        
         print(f"✅ Таблицы созданы: {tables}")
         
         if 'users' in tables:
@@ -70,16 +67,11 @@ def init_db():
             columns = inspector.get_columns('users')
             column_names = [col['name'] for col in columns]
             print(f"📊 Колонки users: {column_names}")
-            
-            # Проверяем наличие нужных колонок
-            required_columns = ['likes_given', 'likes_received', 'matches', 
-                               'likes_given_count', 'likes_received_count', 'matches_count']
-            missing = [col for col in required_columns if col not in column_names]
-            if missing:
-                print(f"⚠️ Отсутствуют колонки: {missing}")
         
         print("✅ База данных инициализирована")
         return True
     except Exception as e:
         print(f"❌ Ошибка инициализации БД: {e}")
+        import traceback
+        traceback.print_exc()
         return False

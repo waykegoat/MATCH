@@ -1,0 +1,10 @@
+[build]
+builder = "nixpacks"
+ 
+[deploy]
+startCommand = "python main.py"
+ 
+[variables]
+BOT_TOKEN = "ваш_токен_бота"
+ADMIN_TOKEN = "ваш_админ_токен"
+DATABASE_URL = "sqlite:///gamers.db"
