@@ -6,19 +6,26 @@ from sqlalchemy.orm import sessionmaker
 # Получаем URL из окружения Railway
 database_url = os.getenv('DATABASE_URL')
 
-# Если Railway дал postgres:// - конвертируем в postgresql://
-if database_url and database_url.startswith('postgres://'):
-    database_url = database_url.replace('postgres://', 'postgresql://', 1)
-
-# Если нет PostgreSQL URL, используем SQLite (только для тестов)
+# Если нет PostgreSQL URL, используем SQLite (только для разработки)
 if not database_url:
     database_url = 'sqlite:///gamers.db'
+    print("⚠️ Используем SQLite (только для разработки)")
+else:
+    # Если Railway дал postgres:// - конвертируем в postgresql://
+    if database_url.startswith('postgres://'):
+        database_url = database_url.replace('postgres://', 'postgresql://', 1)
+    
+    # Проверяем, что это PostgreSQL
+    if 'postgresql' in database_url:
+        print("✅ Используем PostgreSQL (production)")
+    else:
+        print(f"⚠️ Неизвестный тип БД: {database_url}")
 
 print(f"📦 Подключаемся к БД: {database_url.split('@')[-1] if '@' in database_url else database_url}")
 
 # РАЗНЫЕ НАСТРОЙКИ ДЛЯ PostgreSQL и SQLite
 if 'postgresql' in database_url:
-    # PostgreSQL - постоянная БД
+    # PostgreSQL - production БД
     engine = create_engine(
         database_url,
         echo=True,
@@ -27,7 +34,7 @@ if 'postgresql' in database_url:
         max_overflow=20
     )
 else:
-    # SQLite - только для разработки (данные не сохраняются)
+    # SQLite - только для разработки
     engine = create_engine(
         database_url,
         echo=True,
@@ -38,7 +45,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 def get_db():
-    """Генератор сессий для зависимостей"""
+    """Генератор сессий"""
     db = SessionLocal()
     try:
         yield db
@@ -50,21 +57,22 @@ def init_db():
     try:
         print("🔄 Создаем таблицы в БД...")
         
-        # Импортируем ВСЕ модели
+        # Импортируем модели
         import database.models
         
-        # Создаем таблицы (не удаляем старые!)
+        # Создаем таблицы
         Base.metadata.create_all(bind=engine)
         
         # Проверяем
         inspector = inspect(engine)
         tables = inspector.get_table_names()
         
-        print(f"✅ Таблицы в БД: {tables}")
+        print(f"✅ Таблицы созданы: {tables}")
         
-        if 'users' not in tables:
-            print("⚠️ Таблица 'users' не найдена, создаем...")
-            Base.metadata.create_all(bind=engine)
+        if 'users' in tables:
+            print("✅ База данных готова к работе")
+        else:
+            print("❌ Таблица 'users' не создана!")
             
         return True
         
