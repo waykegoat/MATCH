@@ -1832,6 +1832,30 @@ def debug_user(message):
     except Exception as e:
         bot.reply_to(message, f"❌ Ошибка: {str(e)}")
 
+# Добавь где-то в handlers (например, рядом с /debug)
+@bot.message_handler(commands=['resetdb'])
+def reset_db_command(message):
+    """Сброс БД (только для админа)"""
+    user_id = message.from_user.id
+    
+    # Проверяем админа (можно добавить список админских ID)
+    ADMIN_IDS = [568851472]  # Твой ID
+    
+    if user_id not in ADMIN_IDS:
+        bot.reply_to(message, "❌ Команда только для администраторов")
+        return
+    
+    try:
+        from database.db import Base, engine
+        
+        # Удаляем и создаем таблицы заново
+        Base.metadata.drop_all(bind=engine)
+        Base.metadata.create_all(bind=engine)
+        
+        bot.reply_to(message, "✅ База данных сброшена и создана заново!\nПроверьте команду /debug")
+    except Exception as e:
+        bot.reply_to(message, f"❌ Ошибка сброса БД: {str(e)}")
+
 @bot.message_handler(commands=['tables'])
 def show_tables(message):
     """Показывает все таблицы в БД"""
@@ -2374,3 +2398,51 @@ if __name__ == '__main__':
         time.sleep(5)
         print("Перезапуск бота...")
         bot.infinity_polling()
+
+        # В самом конце main.py, перед запуском бота
+if __name__ == "__main__":
+    print("🎮 Бот GamerMatch запущен на Railway!")
+    
+    # === ДОБАВЬ ЭТОТ КОД ===
+    # Проверяем и создаем таблицы если нужно
+    try:
+        from database.db import engine, init_db
+        from sqlalchemy import inspect, text
+        
+        # Инициализируем БД
+        if init_db():
+            print("✅ БД инициализирована")
+        else:
+            print("❌ Ошибка инициализации БД")
+        
+        # Проверяем таблицу users
+        inspector = inspect(engine)
+        if 'users' in inspector.get_table_names():
+            print("✅ Таблица 'users' существует")
+            
+            # Проверяем есть ли данные
+            with engine.connect() as conn:
+                result = conn.execute(text("SELECT COUNT(*) FROM users")).scalar()
+                print(f"📊 Записей в users: {result}")
+        else:
+            print("❌ Таблица 'users' не найдена!")
+            
+    except Exception as e:
+        print(f"⚠️ Предупреждение при проверке БД: {e}")
+    # === КОНЕЦ ДОБАВЛЕННОГО КОДА ===
+    
+    # Решаем проблему 409: используем skip_pending и настраиваем polling
+    try:
+        bot.infinity_polling(
+            skip_pending=True,      # Пропускаем старые сообщения
+            timeout=30,             # Таймаут запроса
+            long_polling_timeout=5, # Таймаут long-polling
+            logger_level="INFO"     # Уровень логов
+        )
+    except Exception as e:
+        print(f"❌ Ошибка при запуске бота: {e}")
+        print("🔄 Перезапуск через 10 секунд...")
+        import time
+        time.sleep(10)
+        # Попробуем снова
+        bot.infinity_polling(skip_pending=True, timeout=30)
