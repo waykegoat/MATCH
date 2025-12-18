@@ -18,7 +18,7 @@ bot = telebot.TeleBot(Config.BOT_TOKEN, state_storage=state_storage)
 def global_exception_handler(exc_type, exc_value, exc_traceback):
     """Глобальный обработчик необработанных исключений"""
     print("="*60)
-    print("🔥 НЕОБРАБОТАННАЯ ОШИБКА В КОДЕ:")
+    print("🔥 НЕОБРАБОТАНАЯ ОШИБКА В КОДЕ:")
     print("="*60)
     print(f"Тип: {exc_type.__name__}")
     print(f"Сообщение: {exc_value}")
