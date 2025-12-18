@@ -4,16 +4,21 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
 # Получаем URL из окружения Railway
-database_url = os.getenv('DATABASE_URL', 'sqlite:///gamers.db')
+database_url = os.getenv('DATABASE_URL')
 
-# Если Railway дал postgres:// - конвертируем
-if database_url.startswith('postgres://'):
+# Если Railway дал postgres:// - конвертируем в postgresql://
+if database_url and database_url.startswith('postgres://'):
     database_url = database_url.replace('postgres://', 'postgresql://', 1)
 
-print(f"📦 Подключаемся к БД: {database_url}")
+# Если нет PostgreSQL URL, используем SQLite (только для тестов)
+if not database_url:
+    database_url = 'sqlite:///gamers.db'
 
-# Настройки для разных БД
+print(f"📦 Подключаемся к БД: {database_url.split('@')[-1] if '@' in database_url else database_url}")
+
+# РАЗНЫЕ НАСТРОЙКИ ДЛЯ PostgreSQL и SQLite
 if 'postgresql' in database_url:
+    # PostgreSQL - постоянная БД
     engine = create_engine(
         database_url,
         echo=True,
@@ -22,6 +27,7 @@ if 'postgresql' in database_url:
         max_overflow=20
     )
 else:
+    # SQLite - только для разработки (данные не сохраняются)
     engine = create_engine(
         database_url,
         echo=True,
@@ -47,19 +53,18 @@ def init_db():
         # Импортируем ВСЕ модели
         import database.models
         
-        # Удаляем старые таблицы и создаем новые
-        Base.metadata.drop_all(bind=engine)
+        # Создаем таблицы (не удаляем старые!)
         Base.metadata.create_all(bind=engine)
         
         # Проверяем
         inspector = inspect(engine)
         tables = inspector.get_table_names()
         
-        print(f"✅ Таблицы созданы: {tables}")
+        print(f"✅ Таблицы в БД: {tables}")
         
         if 'users' not in tables:
-            print("❌ КРИТИЧЕСКО: таблица 'users' не создана!")
-            return False
+            print("⚠️ Таблица 'users' не найдена, создаем...")
+            Base.metadata.create_all(bind=engine)
             
         return True
         
