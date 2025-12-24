@@ -414,14 +414,14 @@ def show_games_selection(chat_id, user_id, is_editing=False):
                 text = f"⬜ {game}"
             callback_data = f"game_{game}_{user_id}"
             if is_editing:
-                callback_data += "_edit"
+                callback_data = f"game_{game}_{user_id}_edit"
             row_buttons.append(types.InlineKeyboardButton(text, callback_data=callback_data))
         markup.row(*row_buttons)
     
     markup.row(types.InlineKeyboardButton("📋 Показать все игры", callback_data="show_all_games"))
     done_callback = f"games_done_{user_id}"
     if is_editing:
-        done_callback += "_edit"
+        done_callback = f"games_done_{user_id}_edit"
     markup.row(types.InlineKeyboardButton("✅ Завершить выбор", callback_data=done_callback))
     
     games_text = ', '.join(selected_games[:8]) if selected_games else 'Не выбрано'
@@ -452,13 +452,13 @@ def show_all_games(call):
                 text = f"⬜ {game}"
             callback_data = f"game_{game}_{user_id}"
             if is_editing:
-                callback_data += "_edit"
+                callback_data = f"game_{game}_{user_id}_edit"
             row_buttons.append(types.InlineKeyboardButton(text, callback_data=callback_data))
         markup.row(*row_buttons)
     
     done_callback = f"games_done_{user_id}"
     if is_editing:
-        done_callback += "_edit"
+        done_callback = f"games_done_{user_id}_edit"
     markup.row(types.InlineKeyboardButton("✅ Завершить выбор", callback_data=done_callback))
     
     bot.edit_message_text(
@@ -764,7 +764,7 @@ def process_edit(message):
     finally:
         db.close()
 
-@bot.callback_query_handler(func=lambda call: call.data.endswith('_edit'))
+@bot.callback_query_handler(func=lambda call: call.data.startswith('game_') and call.data.endswith('_edit'))
 @require_subscription_callback
 def handle_edit_game_selection(call):
     try:
@@ -796,7 +796,7 @@ def handle_edit_game_selection(call):
     except:
         bot.answer_callback_query(call.id, "Ошибка")
 
-@bot.callback_query_handler(func=lambda call: call.data.endswith('_edit') and call.data.startswith('games_done_'))
+@bot.callback_query_handler(func=lambda call: call.data.startswith('games_done_') and call.data.endswith('_edit'))
 @require_subscription_callback
 def finish_edit_games(call):
     try:
@@ -1311,7 +1311,11 @@ def handle_skip(call):
             bot.answer_callback_query(call.id, "👎 Пропущено")
             bot.delete_message(call.message.chat.id, call.message.message_id)
             
-            search_profiles(call.message)
+            if user and user.telegram_id:
+                search_profiles(call.message)
+            else:
+                bot.send_message(call.message.chat.id, "Используйте кнопки для навигации! 🎮", reply_markup=get_main_keyboard())
+                
         except Exception as e:
             print(f"Ошибка при пропуске: {e}")
             bot.answer_callback_query(call.id, "Ошибка")
