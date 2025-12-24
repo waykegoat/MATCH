@@ -1631,11 +1631,23 @@ def show_liker_profile(chat_id, profile_user, viewer_id, index, total):
 @require_subscription_callback
 def handle_like_from_likers(call):
     try:
-        data = call.data.split('_')
+        print(f"DEBUG handle_like_from_likers: call.data = {call.data}")
+        
         # Формат: like_from_likers_{target_id}_{index}_{total}
-        target_id = int(data[4])
-        index = int(data[5])
-        total = int(data[6])
+        data_parts = call.data.split('_')
+        print(f"DEBUG: data_parts = {data_parts}")
+        
+        # Определяем индексы правильно
+        # like_from_likers_123456_0_5
+        # parts: ['like', 'from', 'likers', '123456', '0', '5']
+        if len(data_parts) < 6:
+            bot.answer_callback_query(call.id, "❌ Ошибка формата запроса")
+            return
+            
+        target_id = int(data_parts[3])  # '123456' - это 4-й элемент (индекс 3)
+        index = int(data_parts[4])      # '0' - это 5-й элемент (индекс 4)
+        total = int(data_parts[5])      # '5' - это 6-й элемент (индекс 5)
+        
         user_id = call.from_user.id
         
         db = get_db_session()
@@ -1647,8 +1659,24 @@ def handle_like_from_likers(call):
             user = db.query(User).filter(User.telegram_id == user_id).first()
             target_user = db.query(User).filter(User.telegram_id == target_id).first()
             
-            if not user or not target_user:
-                bot.answer_callback_query(call.id, "Ошибка! Пользователь не найден")
+            if not user:
+                bot.answer_callback_query(call.id, "❌ У вас нет анкеты!")
+                try:
+                    bot.delete_message(call.message.chat.id, call.message.message_id)
+                except:
+                    pass
+                
+                markup = types.InlineKeyboardMarkup()
+                markup.add(types.InlineKeyboardButton("✅ Создать анкету", callback_data="create_profile"))
+                bot.send_message(
+                    call.message.chat.id, 
+                    "📝 У вас нет анкеты. Сначала создайте анкету!",
+                    reply_markup=markup
+                )
+                return
+            
+            if not target_user:
+                bot.answer_callback_query(call.id, "❌ Пользователь не найден")
                 return
             
             # Инициализация списков если они None
@@ -1656,13 +1684,19 @@ def handle_like_from_likers(call):
                 user.likes_given = []
             if target_user.likes_received is None:
                 target_user.likes_received = []
+            if target_user.likes_given is None:
+                target_user.likes_given = []
+            
+            # Проверяем, не лайкали ли уже
+            if target_id in user.likes_given:
+                bot.answer_callback_query(call.id, "❌ Вы уже лайкали этого пользователя")
+                return
             
             # Добавляем лайк
-            if target_id not in user.likes_given:
-                user.likes_given.append(target_id)
-                user.likes_given_count = len(user.likes_given)
-                flag_modified(user, "likes_given")
-                flag_modified(user, "likes_given_count")
+            user.likes_given.append(target_id)
+            user.likes_given_count = len(user.likes_given)
+            flag_modified(user, "likes_given")
+            flag_modified(user, "likes_given_count")
             
             if user_id not in target_user.likes_received:
                 target_user.likes_received.append(user_id)
@@ -1671,16 +1705,16 @@ def handle_like_from_likers(call):
                 flag_modified(target_user, "likes_received_count")
             
             # Проверяем на мэтч
-            target_likes_given = target_user.likes_given or []
-            is_match = user_id in target_likes_given
+            is_match = user_id in (target_user.likes_given or [])
             
             if is_match:
-                # Обработка мэтча
+                # Инициализация списков матчей если они None
                 if user.matches is None:
                     user.matches = []
                 if target_user.matches is None:
                     target_user.matches = []
                 
+                # Добавляем в мэтчи
                 if target_id not in user.matches:
                     user.matches.append(target_id)
                     user.matches_count = len(user.matches)
@@ -1698,7 +1732,7 @@ def handle_like_from_likers(call):
             if is_match:
                 bot.answer_callback_query(call.id, "🎉 Мэтч! Вы понравились друг другу!")
                 if target_user.username:
-                    bot.send_message(call.message.chat.id, f"🎉 Мэтч с {target_user.name}!\nНапишите: @{target_user.username}", reply_markup=get_main_keyboard())
+                    bot.send_message(call.message.chat.id, f"🎉 Мэтч с {target_user.name}!\nНапишите: @{target_user.username}")
             else:
                 bot.answer_callback_query(call.id, "❤️ Лайк отправлен!")
             
@@ -1708,18 +1742,50 @@ def handle_like_from_likers(call):
             except:
                 pass
             
-            # НЕ пытаемся показывать следующего пользователя здесь
-            # Вместо этого просто возвращаем в главное меню
-            bot.send_message(call.message.chat.id, "✅ Лайк отправлен!", reply_markup=get_main_keyboard())
+            # Получаем обновленный список лайкнувших
+            db.refresh(user)
+            likes_received = user.likes_received or []
+            
+            # Ищем следующего пользователя из списка лайкнувших
+            if likes_received:
+                # Находим текущую позицию в списке
+                current_position = 0
+                for i, uid in enumerate(likes_received):
+                    if uid == target_id:
+                        current_position = i
+                        break
+                
+                # Берем следующего пользователя
+                next_position = current_position + 1
+                if next_position < len(likes_received):
+                    next_target_id = likes_received[next_position]
+                    next_user = db.query(User).filter(User.telegram_id == next_target_id).first()
+                    if next_user:
+                        show_liker_profile(call.message.chat.id, next_user, user_id, next_position, len(likes_received))
+                    else:
+                        bot.send_message(call.message.chat.id, "🏁 Вы просмотрели всех, кто вас лайкнул!", reply_markup=get_main_keyboard())
+                else:
+                    bot.send_message(call.message.chat.id, "🏁 Вы просмотрели всех, кто вас лайкнул!", reply_markup=get_main_keyboard())
+            else:
+                bot.send_message(call.message.chat.id, "🏁 Вы просмотрели всех, кто вас лайкнул!", reply_markup=get_main_keyboard())
                 
         except Exception as e:
             print(f"Ошибка в handle_like_from_likers: {e}")
+            import traceback
+            traceback.print_exc()
             bot.answer_callback_query(call.id, f"Ошибка: {str(e)[:50]}")
+            try:
+                bot.delete_message(call.message.chat.id, call.message.message_id)
+            except:
+                pass
+            bot.send_message(call.message.chat.id, "Произошла ошибка. Попробуйте снова.", reply_markup=get_main_keyboard())
         finally:
             if db:
                 db.close()
     except Exception as e:
         print(f"Ошибка обработки like_from_likers: {e}")
+        import traceback
+        traceback.print_exc()
         bot.answer_callback_query(call.id, "Ошибка обработки запроса")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('next_liker_'))
