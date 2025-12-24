@@ -1095,7 +1095,6 @@ def search_profiles(message):
         users_to_show = []
         for other_user in other_users:
             if (other_user.telegram_id not in user_likes_given and 
-                other_user.telegram_id not in user_likes_received and
                 user.telegram_id not in (other_user.likes_given or [])):
                 users_to_show.append(other_user)
         
@@ -1285,7 +1284,6 @@ def send_notification_about_like(target_user_id, liker_user):
         print(f"Ошибка отправки уведомления о лайке: {e}")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('skip_'))
-@require_subscription_callback
 def handle_skip(call):
     try:
         data = call.data.split('_')
@@ -1303,18 +1301,25 @@ def handle_skip(call):
                 if user.likes_given is None:
                     user.likes_given = []
                 
-                user.likes_given.append(target_id)
-                user.likes_given_count = len(user.likes_given)
-                flag_modified(user, "likes_given")
-                flag_modified(user, "likes_given_count")
-                db.commit()
+                if target_id not in user.likes_given:
+                    user.likes_given.append(target_id)
+                    user.likes_given_count = len(user.likes_given)
+                    flag_modified(user, "likes_given")
+                    flag_modified(user, "likes_given_count")
+                    db.commit()
             
             bot.answer_callback_query(call.id, "👎 Пропущено")
             bot.delete_message(call.message.chat.id, call.message.message_id)
+            
             search_profiles(call.message)
         except Exception as e:
-            print(f"Ошибка: {e}")
+            print(f"Ошибка при пропуске: {e}")
             bot.answer_callback_query(call.id, "Ошибка")
+            try:
+                bot.delete_message(call.message.chat.id, call.message.message_id)
+            except:
+                pass
+            bot.send_message(call.message.chat.id, "Используйте кнопки для навигации! 🎮", reply_markup=get_main_keyboard())
         finally:
             db.close()
     except Exception as e:
@@ -1408,6 +1413,18 @@ def view_likers(call):
 
 def show_liker_profile(chat_id, profile_user, viewer_id, index, total):
     try:
+        user_likes_given = []
+        db = get_db_session()
+        if db:
+            try:
+                user = db.query(User).filter(User.telegram_id == viewer_id).first()
+                if user:
+                    user_likes_given = user.likes_given or []
+            finally:
+                db.close()
+        
+        already_liked = profile_user.telegram_id in user_likes_given
+        
         text = f"""👤 {profile_user.name}
 🌍 Регион: {profile_user.region}
 🎮 Платформа: {profile_user.platform}
@@ -1422,6 +1439,9 @@ def show_liker_profile(chat_id, profile_user, viewer_id, index, total):
         text += f"\n\n❤️ Этот человек лайкнул вашу анкету!"
         
         markup = types.InlineKeyboardMarkup()
+        
+        if not already_liked:
+            markup.row(types.InlineKeyboardButton("❤️ Лайкнуть в ответ", callback_data=f"like_from_likers_{profile_user.telegram_id}_{index}_{total}"))
         
         if index < total - 1:
             markup.row(types.InlineKeyboardButton("➡️ Следующий", callback_data=f"next_liker_{index+1}_{total}"))
@@ -1438,6 +1458,98 @@ def show_liker_profile(chat_id, profile_user, viewer_id, index, total):
     except Exception as e:
         print(f"Ошибка: {e}")
         bot.send_message(chat_id, "Ошибка при показе анкеты", reply_markup=get_main_keyboard())
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('like_from_likers_'))
+@require_subscription_callback
+def handle_like_from_likers(call):
+    try:
+        data = call.data.split('_')
+        target_id = int(data[4])
+        index = int(data[5])
+        total = int(data[6])
+        user_id = call.from_user.id
+        
+        db = get_db_session()
+        if not db:
+            bot.answer_callback_query(call.id, "Ошибка БД")
+            return
+        
+        try:
+            user = db.query(User).filter(User.telegram_id == user_id).first()
+            target_user = db.query(User).filter(User.telegram_id == target_id).first()
+            
+            if not user or not target_user:
+                bot.answer_callback_query(call.id, "Ошибка!")
+                return
+            
+            if user.likes_given is None:
+                user.likes_given = []
+            if target_user.likes_received is None:
+                target_user.likes_received = []
+            
+            if target_id not in user.likes_given:
+                user.likes_given.append(target_id)
+                user.likes_given_count = len(user.likes_given)
+                flag_modified(user, "likes_given")
+                flag_modified(user, "likes_given_count")
+            
+            if user_id not in target_user.likes_received:
+                target_user.likes_received.append(user_id)
+                target_user.likes_received_count = len(target_user.likes_received)
+                flag_modified(target_user, "likes_received")
+                flag_modified(target_user, "likes_received_count")
+            
+            if user.matches is None:
+                user.matches = []
+            if target_user.matches is None:
+                target_user.matches = []
+            
+            target_likes_given = target_user.likes_given or []
+            if user_id in target_likes_given:
+                if target_id not in user.matches:
+                    user.matches.append(target_id)
+                    user.matches_count = len(user.matches)
+                    flag_modified(user, "matches")
+                    flag_modified(user, "matches_count")
+                
+                if user_id not in target_user.matches:
+                    target_user.matches.append(user_id)
+                    target_user.matches_count = len(target_user.matches)
+                    flag_modified(target_user, "matches")
+                    flag_modified(target_user, "matches_count")
+                
+                db.commit()
+                bot.answer_callback_query(call.id, "🎉 Мэтч! Вы понравились друг другу!")
+                
+                if target_user.username:
+                    bot.send_message(call.message.chat.id, f"🎉 Мэтч с {target_user.name}!\nНапишите: @{target_user.username}", reply_markup=get_main_keyboard())
+                
+                try:
+                    bot.delete_message(call.message.chat.id, call.message.message_id)
+                except:
+                    pass
+            else:
+                db.commit()
+                bot.answer_callback_query(call.id, "❤️ Лайк отправлен!")
+            
+            likes_received = user.likes_received or []
+            users_who_liked = db.query(User).filter(User.telegram_id.in_(likes_received)).all()
+            
+            if index < len(users_who_liked):
+                bot.delete_message(call.message.chat.id, call.message.message_id)
+                show_liker_profile(call.message.chat.id, users_who_liked[index], user_id, index, len(users_who_liked))
+            else:
+                bot.answer_callback_query(call.id, "Конец списка")
+                bot.delete_message(call.message.chat.id, call.message.message_id)
+                bot.send_message(call.message.chat.id, "🏁 Вы просмотрели всех, кто вас лайкнул!", reply_markup=get_main_keyboard())
+        except Exception as e:
+            print(f"Ошибка: {e}")
+            bot.answer_callback_query(call.id, "Ошибка")
+        finally:
+            if db:
+                db.close()
+    except:
+        bot.answer_callback_query(call.id, "Ошибка обработки")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('next_liker_'))
 @require_subscription_callback
