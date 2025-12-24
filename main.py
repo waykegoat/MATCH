@@ -547,8 +547,6 @@ def finish_profile(call):
                 existing_user.favorite_games = data['games']
                 existing_user.about = data.get('about', '')
                 existing_user.is_active = True
-                existing_user.views_given = existing_user.views_given or []
-                existing_user.views_received = existing_user.views_received or []
             else:
                 new_user = User(
                     telegram_id=data['telegram_id'],
@@ -567,9 +565,7 @@ def finish_profile(call):
                     matches_count=0,
                     likes_given=[],
                     likes_received=[],
-                    matches=[],
-                    views_given=[],
-                    views_received=[]
+                    matches=[]
                 )
                 db.add(new_user)
             
@@ -1093,12 +1089,14 @@ def search_profiles(message):
             bot.send_message(message.chat.id, "😔 Пока нет других анкет для просмотра", reply_markup=get_main_keyboard())
             return
         
-        user_views_given = user.views_given or []
         user_likes_given = user.likes_given or []
+        user_likes_received = user.likes_received or []
         
         users_to_show = []
         for other_user in other_users:
-            if other_user.telegram_id not in user_views_given and other_user.telegram_id not in user_likes_given:
+            if (other_user.telegram_id not in user_likes_given and 
+                other_user.telegram_id not in user_likes_received and
+                user.telegram_id not in (other_user.likes_given or [])):
                 users_to_show.append(other_user)
         
         if not users_to_show:
@@ -1202,19 +1200,6 @@ def handle_like(call):
                 flag_modified(target_user, "likes_received")
                 flag_modified(target_user, "likes_received_count")
             
-            if user.views_given is None:
-                user.views_given = []
-            if target_user.views_received is None:
-                target_user.views_received = []
-            
-            if target_id not in user.views_given:
-                user.views_given.append(target_id)
-                flag_modified(user, "views_given")
-            
-            if user_id not in target_user.views_received:
-                target_user.views_received.append(user_id)
-                flag_modified(target_user, "views_received")
-            
             if user.matches is None:
                 user.matches = []
             if target_user.matches is None:
@@ -1284,9 +1269,12 @@ def send_notification_about_like(target_user_id, liker_user):
 
 {liker_user.name} понравилась ваша анкета!
 
-📊 У вас уже *{new_likes_count}* лайк{'ов' if new_likes_count != 1 else ''}
+📊 У вас уже *{new_likes_count}* лайк{'ов' if new_likes_count != 1 else ''}"""
 
-🎮 Общие интересы: {', '.join(set(liker_user.favorite_games[:3]) & set(target_user.favorite_games[:3])) if liker_user.favorite_games and target_user.favorite_games else 'Общение'}"""
+        if liker_user.favorite_games and target_user.favorite_games:
+            common_games = set(liker_user.favorite_games[:3]) & set(target_user.favorite_games[:3])
+            if common_games:
+                notification_text += f"\n\n🎮 Общие интересы: {', '.join(common_games)}"
         
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("👀 Посмотреть кто лайкнул", callback_data="view_likers"))
@@ -1312,13 +1300,14 @@ def handle_skip(call):
         try:
             user = db.query(User).filter(User.telegram_id == user_id).first()
             if user:
-                if user.views_given is None:
-                    user.views_given = []
+                if user.likes_given is None:
+                    user.likes_given = []
                 
-                if target_id not in user.views_given:
-                    user.views_given.append(target_id)
-                    flag_modified(user, "views_given")
-                    db.commit()
+                user.likes_given.append(target_id)
+                user.likes_given_count = len(user.likes_given)
+                flag_modified(user, "likes_given")
+                flag_modified(user, "likes_given_count")
+                db.commit()
             
             bot.answer_callback_query(call.id, "👎 Пропущено")
             bot.delete_message(call.message.chat.id, call.message.message_id)
@@ -1429,6 +1418,8 @@ def show_liker_profile(chat_id, profile_user, viewer_id, index, total):
         if profile_user.about:
             about_text = profile_user.about[:150]
             text += f"\n\n📝 О себе:\n{about_text}"
+        
+        text += f"\n\n❤️ Этот человек лайкнул вашу анкету!"
         
         markup = types.InlineKeyboardMarkup()
         
