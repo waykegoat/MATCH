@@ -1304,7 +1304,9 @@ def handle_skip(call):
         
         try:
             user = db.query(User).filter(User.telegram_id == user_id).first()
+            
             if user:
+                # Только если пользователь существует, обновляем likes_given
                 if user.likes_given is None:
                     user.likes_given = []
                 
@@ -1318,7 +1320,7 @@ def handle_skip(call):
             bot.answer_callback_query(call.id, "👎 Пропущено")
             bot.delete_message(call.message.chat.id, call.message.message_id)
             
-            # Проверяем, существует ли пользователь в БД
+            # ВАЖНО: Проверяем существование пользователя перед вызовом search_profiles
             if not user:
                 # Если пользователя нет в БД, показываем сообщение о необходимости создать анкету
                 markup = types.InlineKeyboardMarkup()
