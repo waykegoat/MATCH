@@ -1074,7 +1074,14 @@ def search_profiles(message):
     try:
         user = db.query(User).filter(User.telegram_id == user_id).first()
         if not user:
-            bot.send_message(message.chat.id, "Сначала создайте анкету!", reply_markup=get_main_keyboard())
+            # Вместо ошибки показываем предложение создать анкету
+            markup = types.InlineKeyboardMarkup()
+            markup.add(types.InlineKeyboardButton("✅ Создать анкету", callback_data="create_profile"))
+            bot.send_message(
+                message.chat.id, 
+                "📝 У вас нет анкеты. Сначала создайте анкету для поиска других игроков!",
+                reply_markup=markup
+            )
             return
         
         if not hasattr(user, 'search_by_interests'):
@@ -1311,10 +1318,19 @@ def handle_skip(call):
             bot.answer_callback_query(call.id, "👎 Пропущено")
             bot.delete_message(call.message.chat.id, call.message.message_id)
             
-            if user and user.telegram_id:
-                search_profiles(call.message)
+            # Проверяем, существует ли пользователь в БД
+            if not user:
+                # Если пользователя нет в БД, показываем сообщение о необходимости создать анкету
+                markup = types.InlineKeyboardMarkup()
+                markup.add(types.InlineKeyboardButton("✅ Создать анкету", callback_data="create_profile"))
+                bot.send_message(
+                    call.message.chat.id, 
+                    "📝 У вас нет анкеты. Хотите создать?",
+                    reply_markup=markup
+                )
             else:
-                bot.send_message(call.message.chat.id, "Используйте кнопки для навигации! 🎮", reply_markup=get_main_keyboard())
+                # Если пользователь существует, продолжаем поиск
+                search_profiles(call.message)
                 
         except Exception as e:
             print(f"Ошибка при пропуске: {e}")
