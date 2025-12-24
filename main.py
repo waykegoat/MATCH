@@ -1291,6 +1291,7 @@ def send_notification_about_like(target_user_id, liker_user):
         print(f"Ошибка отправки уведомления о лайке: {e}")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('skip_'))
+@require_subscription_callback  # Добавьте этот декоратор для проверки подписки
 def handle_skip(call):
     try:
         data = call.data.split('_')
@@ -1318,11 +1319,14 @@ def handle_skip(call):
                     db.commit()
             
             bot.answer_callback_query(call.id, "👎 Пропущено")
-            bot.delete_message(call.message.chat.id, call.message.message_id)
+            try:
+                bot.delete_message(call.message.chat.id, call.message.message_id)
+            except:
+                pass
             
-            # ВАЖНО: Проверяем существование пользователя перед вызовом search_profiles
+            # Создаем новое сообщение для вызова search_profiles
             if not user:
-                # Если пользователя нет в БД, показываем сообщение о необходимости создать анкету
+                # Если пользователя нет в БД, показываем предложение создать анкету
                 markup = types.InlineKeyboardMarkup()
                 markup.add(types.InlineKeyboardButton("✅ Создать анкету", callback_data="create_profile"))
                 bot.send_message(
@@ -1331,8 +1335,16 @@ def handle_skip(call):
                     reply_markup=markup
                 )
             else:
-                # Если пользователь существует, продолжаем поиск
-                search_profiles(call.message)
+                # Создаем фиктивное сообщение от текущего пользователя
+                class FakeMessage:
+                    def __init__(self, chat_id, user_id):
+                        self.chat = type('Chat', (), {'id': chat_id})()
+                        self.from_user = type('User', (), {'id': user_id})()
+                        self.text = "🔍 Искать игроков"
+                
+                # Создаем фиктивное сообщение и вызываем search_profiles
+                fake_msg = FakeMessage(call.message.chat.id, user_id)
+                search_profiles(fake_msg)
                 
         except Exception as e:
             print(f"Ошибка при пропуске: {e}")
