@@ -1172,6 +1172,11 @@ def show_profile_search(chat_id, profile_user, viewer_id):
 @require_subscription_callback
 def handle_like(call):
     try:
+        # Проверяем, что это лайк из поиска, а не из списка лайкнувших
+        if 'from_likers' in call.data:
+            # Это обрабатывается в handle_like_from_likers
+            return handle_like_from_likers(call)
+        
         data = call.data.split('_')
         target_id = int(data[1])
         user_id = call.from_user.id
@@ -1185,10 +1190,28 @@ def handle_like(call):
             user = db.query(User).filter(User.telegram_id == user_id).first()
             target_user = db.query(User).filter(User.telegram_id == target_id).first()
             
-            if not user or not target_user:
-                bot.answer_callback_query(call.id, "Ошибка!")
+            # ВАЖНО: Проверяем есть ли анкета у того, кто ставит лайк
+            if not user:
+                bot.answer_callback_query(call.id, "❌ Сначала создайте анкету!")
+                try:
+                    bot.delete_message(call.message.chat.id, call.message.message_id)
+                except:
+                    pass
+                
+                markup = types.InlineKeyboardMarkup()
+                markup.add(types.InlineKeyboardButton("✅ Создать анкету", callback_data="create_profile"))
+                bot.send_message(
+                    call.message.chat.id, 
+                    "📝 У вас нет анкеты. Сначала создайте анкету!",
+                    reply_markup=markup
+                )
                 return
             
+            if not target_user:
+                bot.answer_callback_query(call.id, "❌ Пользователь не найден")
+                return
+            
+            # Инициализация списков если они None
             if user.likes_given is None:
                 user.likes_given = []
             if target_user.likes_received is None:
@@ -1248,14 +1271,30 @@ def handle_like(call):
                 
                 send_notification_about_like(target_user.telegram_id, user)
             
-            search_profiles(call.message)
+            # ПОСЛЕ лайка показываем следующую анкету
+            # Создаем фиктивное сообщение для вызова search_profiles
+            class FakeMessage:
+                def __init__(self, chat_id, user_id):
+                    self.chat = type('Chat', (), {'id': chat_id})()
+                    self.from_user = type('User', (), {'id': user_id})()
+                    self.text = "🔍 Искать игроков"
+            
+            fake_msg = FakeMessage(call.message.chat.id, user_id)
+            search_profiles(fake_msg)
+            
         except Exception as e:
-            print(f"Ошибка: {e}")
+            print(f"Ошибка в handle_like: {e}")
             bot.answer_callback_query(call.id, "Ошибка")
+            try:
+                bot.delete_message(call.message.chat.id, call.message.message_id)
+            except:
+                pass
+            bot.send_message(call.message.chat.id, "Ошибка при отправке лайка", reply_markup=get_main_keyboard())
         finally:
             if db:
                 db.close()
-    except:
+    except Exception as e:
+        print(f"Ошибка обработки like: {e}")
         bot.answer_callback_query(call.id, "Ошибка обработки")
 
 def send_notification_about_like(target_user_id, liker_user):
@@ -1291,7 +1330,6 @@ def send_notification_about_like(target_user_id, liker_user):
         print(f"Ошибка отправки уведомления о лайке: {e}")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('skip_'))
-@require_subscription_callback
 def handle_skip(call):
     try:
         data = call.data.split('_')
@@ -1305,7 +1343,6 @@ def handle_skip(call):
         
         try:
             user = db.query(User).filter(User.telegram_id == user_id).first()
-            
             if user:
                 if user.likes_given is None:
                     user.likes_given = []
@@ -1318,10 +1355,11 @@ def handle_skip(call):
                     db.commit()
             
             bot.answer_callback_query(call.id, "👎 Пропущено")
+            bot.delete_message(call.message.chat.id, call.message.message_id)
             
-            # Не удаляем сообщение сразу, сначала получаем следующую анкету
+            # Проверяем, существует ли пользователь в БД
             if not user:
-                bot.delete_message(call.message.chat.id, call.message.message_id)
+                # Если пользователя нет в БД, показываем сообщение о необходимости создать анкету
                 markup = types.InlineKeyboardMarkup()
                 markup.add(types.InlineKeyboardButton("✅ Создать анкету", callback_data="create_profile"))
                 bot.send_message(
@@ -1329,22 +1367,17 @@ def handle_skip(call):
                     "📝 У вас нет анкеты. Хотите создать?",
                     reply_markup=markup
                 )
-                return
-            
-            # Получаем следующую анкету
-            next_profile = get_next_profile_for_user(user_id, target_id)
-            
-            if next_profile:
-                # Редактируем текущее сообщение вместо удаления
-                try:
-                    show_profile_search_edit(call.message.chat.id, call.message.message_id, next_profile, user_id)
-                except:
-                    # Если редактирование не удалось, удаляем и отправляем новое
-                    bot.delete_message(call.message.chat.id, call.message.message_id)
-                    show_profile_search(call.message.chat.id, next_profile, user_id)
             else:
-                bot.delete_message(call.message.chat.id, call.message.message_id)
-                bot.send_message(call.message.chat.id, "🏁 Вы просмотрели все доступные анкеты!", reply_markup=get_main_keyboard())
+                # Если пользователь существует, продолжаем поиск
+                # Создаем фиктивное сообщение для вызова search_profiles
+                class FakeMessage:
+                    def __init__(self, chat_id, user_id):
+                        self.chat = type('Chat', (), {'id': chat_id})()
+                        self.from_user = type('User', (), {'id': user_id})()
+                        self.text = "🔍 Искать игроков"
+                
+                fake_msg = FakeMessage(call.message.chat.id, user_id)
+                search_profiles(fake_msg)
                 
         except Exception as e:
             print(f"Ошибка при пропуске: {e}")
@@ -1675,15 +1708,9 @@ def handle_like_from_likers(call):
             except:
                 pass
             
-            # Показываем следующего пользователя из списка лайкнувших
-            db.refresh(user)  # Обновляем данные пользователя
-            likes_received = user.likes_received or []
-            users_who_liked = db.query(User).filter(User.telegram_id.in_(likes_received)).all()
-            
-            if users_who_liked and index < len(users_who_liked):
-                show_liker_profile(call.message.chat.id, users_who_liked[index], user_id, index, len(users_who_liked))
-            else:
-                bot.send_message(call.message.chat.id, "🏁 Вы просмотрели всех, кто вас лайкнул!", reply_markup=get_main_keyboard())
+            # НЕ пытаемся показывать следующего пользователя здесь
+            # Вместо этого просто возвращаем в главное меню
+            bot.send_message(call.message.chat.id, "✅ Лайк отправлен!", reply_markup=get_main_keyboard())
                 
         except Exception as e:
             print(f"Ошибка в handle_like_from_likers: {e}")
